@@ -14,7 +14,35 @@ export const LOCAL_DRAFT_KEY = 'dvir-blog:draft';
 /** Fired on `window` after any write, so open views can refresh themselves. */
 export const LOCAL_POSTS_EVENT = 'local-posts-changed';
 
-export const POST_CATEGORIES = ['Engineering', 'Design', 'Framework', 'Product', 'Personal'];
+export const POST_CATEGORIES = [
+  'Engineering',
+  'Design',
+  'Framework',
+  'Product',
+  'Personal',
+  'Finance',
+  'Health',
+  'Community',
+];
+
+/** Badge colour per category. Add a category above and give it a colour here. */
+const POST_CATEGORY_COLORS: Record<string, string> = {
+  Engineering: '#FF4D8E',
+  Design: '#00C2FF',
+  Framework: '#FF9100',
+  Product: '#8B5CF6',
+  Personal: '#10B981',
+  Finance: '#0D9488',
+  Health: '#DC2626',
+  Community: '#6366F1',
+};
+
+const FALLBACK_CATEGORY_COLOR = '#FF4D8E';
+
+/** Colour for a category, including ones from older posts that are no longer listed. */
+export function getCategoryColor(category: string): string {
+  return POST_CATEGORY_COLORS[category] ?? FALLBACK_CATEGORY_COLOR;
+}
 
 /* -------------------------------------------------------------------------- */
 /*  HTML sanitizing                                                           */
