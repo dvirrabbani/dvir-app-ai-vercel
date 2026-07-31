@@ -150,7 +150,6 @@ function NewPostForm({ draft }: { draft: PostDraft | null }) {
       date: formatPostDate(new Date()),
       readingTime: estimateReadingTime(plainText),
       author: { name: authorName.trim() || sessionName || 'Anonymous' },
-      isLocal: true,
       createdAt: new Date().toISOString(),
     };
 

@@ -219,16 +219,14 @@ With Next.js 14, the App Router is stable and performant. The rough edges have b
 <p>It's time to build.</p>
 `,
   },
+
 ];
 
-export function getAllPosts(): BlogPost[] {
-  return posts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-}
-
-export function getPostBySlug(slug: string): BlogPost | undefined {
-  return posts.find((post) => post.slug === slug);
-}
-
-export function getAllSlugs(): string[] {
-  return posts.map((post) => post.slug);
+/**
+ * Seed content. Every post the blog shows lives in local storage; these are the
+ * ones written there the first time a browser opens the blog, after which they
+ * are ordinary posts that can be deleted like any other.
+ */
+export function getDefaultPosts(): BlogPost[] {
+  return posts;
 }

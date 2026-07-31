@@ -4,7 +4,6 @@ import { useCallback } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { ArrowLeft, Clock, Calendar, ArrowRight, PenLine, Trash2 } from 'lucide-react';
-import { BlogPost, getAllPosts } from '@/lib/blog';
 import { LocalBlogPost, deleteLocalPost } from '@/lib/local-posts';
 import { useLocalPosts } from '@/lib/use-local-posts';
 
@@ -16,18 +15,9 @@ const categoryColors: Record<string, string> = {
   Personal: '#10B981',
 };
 
-function isLocalPost(post: BlogPost | LocalBlogPost): post is LocalBlogPost {
-  return 'isLocal' in post && post.isLocal;
-}
-
-function sortKey(post: BlogPost | LocalBlogPost): number {
-  return isLocalPost(post) ? new Date(post.createdAt).getTime() : new Date(post.date).getTime();
-}
-
 export default function BlogPage() {
-  const staticPosts = getAllPosts();
-  // Empty until hydration — local storage does not exist while rendering on the server.
-  const { posts: localPosts } = useLocalPosts();
+  // Every post lives in local storage, so the list is empty until hydration.
+  const { posts, hydrated } = useLocalPosts();
 
   const handleDelete = useCallback((event: React.MouseEvent, post: LocalBlogPost) => {
     event.preventDefault();
@@ -35,8 +25,6 @@ export default function BlogPage() {
     if (!window.confirm(`Delete "${post.title}"? This cannot be undone.`)) return;
     deleteLocalPost(post.slug);
   }, []);
-
-  const posts: (BlogPost | LocalBlogPost)[] = [...localPosts, ...staticPosts].sort((a, b) => sortKey(b) - sortKey(a));
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-[#FFF5F8] via-background to-background dark:from-[#1C1C1E] dark:via-[#1C1C1E] dark:to-[#1C1C1E]">
@@ -80,6 +68,30 @@ export default function BlogPage() {
 
       {/* Posts Grid */}
       <section className="container mx-auto px-4 md:px-6 pb-16 md:pb-24">
+        {!hydrated && (
+          <div className="grid animate-pulse gap-4 md:grid-cols-2 md:gap-6 lg:grid-cols-3" aria-hidden>
+            {Array.from({ length: 3 }).map((_, index) => (
+              <div key={index} className="h-56 rounded-xl bg-foreground/5 md:rounded-2xl" />
+            ))}
+          </div>
+        )}
+
+        {hydrated && posts.length === 0 && (
+          <div className="rounded-xl border border-dashed border-border p-10 text-center md:rounded-2xl">
+            <h2 className="mb-2 text-lg font-semibold text-foreground md:text-xl">No posts yet</h2>
+            <p className="mx-auto mb-6 max-w-md text-sm text-muted-foreground">
+              Every post lives in this browser&apos;s local storage. Write the first one to get started.
+            </p>
+            <Link
+              href="/blog/new"
+              className="inline-flex items-center gap-2 rounded-full bg-[#FF4D8E] px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-[#FF4D8E]/25 transition-colors hover:bg-[#FF4D8E]/90"
+            >
+              <PenLine className="h-4 w-4" />
+              Write a post
+            </Link>
+          </div>
+        )}
+
         <div className="grid gap-4 md:gap-6 md:grid-cols-2 lg:grid-cols-3">
           {posts.map((post, index) => (
             <motion.article
@@ -102,11 +114,6 @@ export default function BlogPage() {
                       <Clock className="w-3 h-3" />
                       {post.readingTime} min read
                     </span>
-                    {isLocalPost(post) && (
-                      <span className="rounded-full border border-[#FF4D8E]/30 px-2 py-0.5 text-xs font-medium text-[#FF4D8E]">
-                        Saved locally
-                      </span>
-                    )}
                   </div>
 
                   {/* Title */}
@@ -126,17 +133,15 @@ export default function BlogPage() {
                       {post.date}
                     </span>
                     <span className="flex items-center gap-2">
-                      {isLocalPost(post) && (
-                        <button
-                          type="button"
-                          onClick={(event) => handleDelete(event, post)}
-                          title="Delete this post"
-                          aria-label={`Delete ${post.title}`}
-                          className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
-                        >
-                          <Trash2 className="h-3.5 w-3.5" />
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={(event) => handleDelete(event, post)}
+                        title="Delete this post"
+                        aria-label={`Delete ${post.title}`}
+                        className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                       <span className="flex items-center gap-1 text-xs md:text-sm font-medium text-[#FF4D8E] group-hover:gap-2 transition-all">
                         Read article
                         <ArrowRight className="w-3 h-3 md:w-4 md:h-4" />

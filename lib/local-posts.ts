@@ -1,16 +1,17 @@
-import { BlogPost, getAllSlugs } from '@/lib/blog';
+import { BlogPost, getDefaultPosts } from '@/lib/blog';
 
 /**
- * Posts the user writes in the browser. They live in localStorage only —
- * nothing is sent to a server, and they are gone if the user clears site data.
+ * Every post the blog renders. They live in localStorage only — nothing is sent
+ * to a server, and they are gone if the user clears site data.
  */
 export interface LocalBlogPost extends BlogPost {
-  isLocal: true;
   createdAt: string; // ISO timestamp, used for reliable sorting
 }
 
 export const LOCAL_POSTS_KEY = 'dvir-blog:posts';
 export const LOCAL_DRAFT_KEY = 'dvir-blog:draft';
+/** Set once the seed posts have been written, so deleting them all sticks. */
+export const LOCAL_SEEDED_KEY = 'dvir-blog:seeded';
 
 /** Fired on `window` after any write, so open views can refresh themselves. */
 export const LOCAL_POSTS_EVENT = 'local-posts-changed';
@@ -154,10 +155,10 @@ export function slugify(title: string): string {
     .slice(0, 60);
 }
 
-/** Appends -2, -3, … until the slug collides with neither a built-in nor a saved post. */
+/** Appends -2, -3, … until the slug no longer collides with a saved post. */
 export function uniqueSlug(title: string, ignoreSlug?: string): string {
   const base = slugify(title) || 'untitled-post';
-  const taken = new Set([...getAllSlugs(), ...getLocalPosts().map((p) => p.slug)]);
+  const taken = new Set(getLocalPosts().map((post) => post.slug));
   if (ignoreSlug) taken.delete(ignoreSlug);
 
   if (!taken.has(base)) return base;
@@ -187,10 +188,41 @@ export function getLocalPosts(): LocalBlogPost[] {
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
 
-    return parsed.filter(isLocalBlogPost).sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+    return parsed
+      .filter(isLocalBlogPost)
+      .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
   } catch {
     // Corrupted or unreadable storage — behave as if there were no posts.
     return [];
+  }
+}
+
+/**
+ * Writes the seed posts the first time this browser opens the blog. The flag is
+ * what makes "delete every post" stick: without it an empty list would look the
+ * same as a first visit and the defaults would come back.
+ */
+export function ensureSeeded(): void {
+  if (typeof window === 'undefined') return;
+
+  try {
+    if (window.localStorage.getItem(LOCAL_SEEDED_KEY)) return;
+
+    const existing = getLocalPosts();
+    const taken = new Set(existing.map((post) => post.slug));
+    const seeded = getDefaultPosts()
+      .filter((post) => !taken.has(post.slug))
+      .map<LocalBlogPost>((post) => ({
+        ...post,
+        // Their published date is all we have to order them by.
+        createdAt: new Date(post.date).toISOString(),
+      }));
+
+    if (seeded.length > 0) writeLocalPosts([...existing, ...seeded]);
+    // Flag last: if the write above fails there is nothing to remember.
+    window.localStorage.setItem(LOCAL_SEEDED_KEY, new Date().toISOString());
+  } catch {
+    // Storage unavailable (private mode, blocked cookies) — the blog just stays empty.
   }
 }
 

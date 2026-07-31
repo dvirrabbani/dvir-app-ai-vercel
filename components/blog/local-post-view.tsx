@@ -8,8 +8,7 @@ import { sanitizeHtml } from '@/lib/local-posts';
 import { useLocalPosts } from '@/lib/use-local-posts';
 
 /**
- * Renders a post that only exists in this browser's local storage. Used as the
- * fallback for slugs the server does not know about.
+ * Renders a post from this browser's local storage, where every post lives.
  */
 export function LocalPostView({ slug }: { slug: string }) {
   const { posts, hydrated } = useLocalPosts();

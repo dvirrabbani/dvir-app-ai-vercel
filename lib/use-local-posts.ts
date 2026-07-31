@@ -1,7 +1,7 @@
 'use client';
 
-import { useMemo, useSyncExternalStore } from 'react';
-import { LOCAL_POSTS_EVENT, LOCAL_POSTS_KEY, LocalBlogPost, getLocalPosts } from '@/lib/local-posts';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
+import { LOCAL_POSTS_EVENT, LOCAL_POSTS_KEY, LocalBlogPost, ensureSeeded, getLocalPosts } from '@/lib/local-posts';
 
 function subscribeToPosts(onChange: () => void) {
   window.addEventListener(LOCAL_POSTS_EVENT, onChange);
@@ -27,12 +27,17 @@ function getServerPostsSnapshot(): null {
 }
 
 /**
- * Reads locally saved posts and re-renders when they change (including from
- * another tab). `hydrated` is false on the server and during the hydration
- * render, which is what lets callers show a loading state without an effect.
+ * Reads the stored posts and re-renders when they change (including from another
+ * tab). `hydrated` is false on the server and during the hydration render, which
+ * is what lets callers show a loading state without an effect.
  */
 export function useLocalPosts(): { posts: LocalBlogPost[]; hydrated: boolean } {
   const raw = useSyncExternalStore(subscribeToPosts, getPostsSnapshot, getServerPostsSnapshot);
+
+  // Writing the seed posts notifies the store above, which re-renders with them.
+  useEffect(() => {
+    ensureSeeded();
+  }, []);
 
   return useMemo(
     () => ({
