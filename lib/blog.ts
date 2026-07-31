@@ -11,9 +11,25 @@ export interface BlogPost {
     name: string;
     avatar?: string;
   };
+  /** Optional: kept when a post is pasted in from local storage, else derived from `date`. */
+  createdAt?: string;
 }
 
 const posts: BlogPost[] = [
+  {
+    "slug": "finally-a-place-to-express",
+    "title": "Finally a place to express",
+    "excerpt": "I will write about my journey and how to become a better person",
+    "content": "Let's start",
+    "contentHtml": "<p>Let's start</p><p><br></p>",
+    "category": "Engineering",
+    "date": "July 31, 2026",
+    "readingTime": 1,
+    "author": {
+      "name": "Dvir"
+    },
+    "createdAt": "2026-07-31T08:57:02.904Z"
+  },
   {
     slug: 'why-we-chose-bun',
     title: 'Why We Chose Bun Over npm for This Boilerplate',
@@ -221,14 +237,11 @@ With Next.js 14, the App Router is stable and performant. The rough edges have b
   },
 ];
 
-export function getAllPosts(): BlogPost[] {
-  return posts.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-}
-
-export function getPostBySlug(slug: string): BlogPost | undefined {
-  return posts.find((post) => post.slug === slug);
-}
-
-export function getAllSlugs(): string[] {
-  return posts.map((post) => post.slug);
+/**
+ * Seed content. Every post the blog shows lives in local storage; these are the
+ * ones written there the first time a browser opens the blog, after which they
+ * are ordinary posts that can be deleted like any other.
+ */
+export function getDefaultPosts(): BlogPost[] {
+  return posts;
 }
