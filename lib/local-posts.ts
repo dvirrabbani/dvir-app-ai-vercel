@@ -10,8 +10,6 @@ export interface LocalBlogPost extends BlogPost {
 
 export const LOCAL_POSTS_KEY = 'dvir-blog:posts';
 export const LOCAL_DRAFT_KEY = 'dvir-blog:draft';
-/** Set once the seed posts have been written, so deleting them all sticks. */
-export const LOCAL_SEEDED_KEY = 'dvir-blog:seeded';
 
 /** Fired on `window` after any write, so open views can refresh themselves. */
 export const LOCAL_POSTS_EVENT = 'local-posts-changed';
@@ -198,31 +196,30 @@ export function getLocalPosts(): LocalBlogPost[] {
 }
 
 /**
- * Writes the seed posts the first time this browser opens the blog. The flag is
- * what makes "delete every post" stick: without it an empty list would look the
- * same as a first visit and the defaults would come back.
+ * Creates the posts from `lib/blog.ts` when this browser has no stored posts at
+ * all. An existing entry is left alone even when it is an empty list, so deleting
+ * every post stays deleted — only a missing (or unreadable) entry seeds again.
  */
 export function ensureSeeded(): void {
   if (typeof window === 'undefined') return;
 
   try {
-    if (window.localStorage.getItem(LOCAL_SEEDED_KEY)) return;
+    const raw = window.localStorage.getItem(LOCAL_POSTS_KEY);
+    if (raw !== null && Array.isArray(JSON.parse(raw))) return;
+  } catch {
+    // Unparseable entry — treat it as missing and write the defaults over it.
+  }
 
-    const existing = getLocalPosts();
-    const taken = new Set(existing.map((post) => post.slug));
-    const seeded = getDefaultPosts()
-      .filter((post) => !taken.has(post.slug))
-      .map<LocalBlogPost>((post) => ({
+  try {
+    writeLocalPosts(
+      getDefaultPosts().map<LocalBlogPost>((post) => ({
         ...post,
         // Their published date is all we have to order them by.
         createdAt: new Date(post.date).toISOString(),
-      }));
-
-    if (seeded.length > 0) writeLocalPosts([...existing, ...seeded]);
-    // Flag last: if the write above fails there is nothing to remember.
-    window.localStorage.setItem(LOCAL_SEEDED_KEY, new Date().toISOString());
+      }))
+    );
   } catch {
-    // Storage unavailable (private mode, blocked cookies) — the blog just stays empty.
+    // Storage unavailable (private mode, blocked cookies) — the blog stays empty.
   }
 }
 
