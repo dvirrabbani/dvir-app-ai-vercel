@@ -1,17 +1,23 @@
 'use client';
 
-import { useMemo, useSyncExternalStore } from 'react';
+import { useEffect, useMemo, useSyncExternalStore } from 'react';
 import {
+  POLL_CURRENT_USER_KEY,
   POLL_EVENT,
+  POLL_SHARES_KEY,
   POLL_SUGGESTIONS_KEY,
-  POLL_TALLY_KEY,
-  POLL_VOTE_KEY,
-  PollAnswer,
+  POLL_USERS_KEY,
+  POLL_VOTES_KEY,
+  PollShare,
   PollSuggestion,
-  PollTally,
-  getMyVote,
+  PollUser,
+  PollVote,
+  ensurePollSeeded,
+  getCurrentUserId,
+  getShares,
   getSuggestions,
-  getTally,
+  getUsers,
+  getVotes,
 } from '@/lib/poll';
 
 function subscribe(onChange: () => void) {
@@ -23,15 +29,17 @@ function subscribe(onChange: () => void) {
   };
 }
 
-// One string covering everything the page reads, so the snapshot only changes
+// One string covering everything the pages read, so the snapshot only changes
 // when the stored data does.
 function getSnapshot(): string {
   try {
     const { localStorage } = window;
     return [
-      localStorage.getItem(POLL_TALLY_KEY) ?? '',
-      localStorage.getItem(POLL_VOTE_KEY) ?? '',
+      localStorage.getItem(POLL_USERS_KEY) ?? '',
+      localStorage.getItem(POLL_SHARES_KEY) ?? '',
+      localStorage.getItem(POLL_VOTES_KEY) ?? '',
       localStorage.getItem(POLL_SUGGESTIONS_KEY) ?? '',
+      localStorage.getItem(POLL_CURRENT_USER_KEY) ?? '',
     ].join('|');
   } catch {
     return '';
@@ -42,11 +50,12 @@ function getServerSnapshot(): null {
   return null;
 }
 
-interface PollState {
-  tally: PollTally;
-  myVote: PollAnswer | null;
+export interface PollState {
+  users: PollUser[];
+  shares: PollShare[];
+  votes: PollVote[];
   suggestions: PollSuggestion[];
-  total: number;
+  currentUser: PollUser | null;
   /** False on the server and during hydration, so callers can show a placeholder. */
   hydrated: boolean;
 }
@@ -54,17 +63,25 @@ interface PollState {
 export function usePoll(): PollState {
   const raw = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
 
+  // Writing the starter shares notifies the store above, which re-renders with them.
+  useEffect(() => {
+    ensurePollSeeded();
+  }, []);
+
   return useMemo(() => {
     if (raw === null) {
-      return { tally: { helped: 0, notHelped: 0 }, myVote: null, suggestions: [], total: 0, hydrated: false };
+      return { users: [], shares: [], votes: [], suggestions: [], currentUser: null, hydrated: false };
     }
 
-    const tally = getTally();
+    const users = getUsers();
+    const currentUserId = getCurrentUserId();
+
     return {
-      tally,
-      myVote: getMyVote(),
+      users,
+      shares: getShares(),
+      votes: getVotes(),
       suggestions: getSuggestions(),
-      total: tally.helped + tally.notHelped,
+      currentUser: users.find((user) => user.id === currentUserId) ?? null,
       hydrated: true,
     };
   }, [raw]);
