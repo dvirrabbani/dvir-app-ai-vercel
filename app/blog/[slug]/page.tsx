@@ -1,6 +1,6 @@
-import { notFound } from 'next/navigation';
 import { getPostBySlug, getAllSlugs } from '@/lib/blog';
 import { ArticleContent } from '@/components/blog/article-content';
+import { LocalPostView } from '@/components/blog/local-post-view';
 
 interface BlogPostPageProps {
   params: Promise<{ slug: string }>;
@@ -16,8 +16,9 @@ export async function generateMetadata({ params }: BlogPostPageProps) {
   const post = getPostBySlug(resolvedParams.slug);
 
   if (!post) {
+    // Could still be a post saved in the reader's browser — resolved client-side.
     return {
-      title: 'Post Not Found',
+      title: 'Blog | YUV.AI',
     };
   }
 
@@ -32,7 +33,7 @@ export default async function BlogPostPage({ params }: BlogPostPageProps) {
   const post = getPostBySlug(resolvedParams.slug);
 
   if (!post) {
-    notFound();
+    return <LocalPostView slug={resolvedParams.slug} />;
   }
 
   return <ArticleContent post={post} />;

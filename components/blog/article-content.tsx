@@ -5,8 +5,9 @@ import Link from 'next/link';
 import { ArrowLeft, Play, Pause, Square, Volume2, VolumeX, SkipBack, Settings, X } from 'lucide-react';
 import { BlogPost } from '@/lib/blog';
 
-// Note: Blog content HTML comes from our own hardcoded lib/blog.ts file,
-// not from user input, so it is safe to render.
+// Note: Blog content HTML comes either from our own hardcoded lib/blog.ts file
+// or from a locally saved post, which is sanitized against an allow-list before
+// it reaches this component (see components/blog/local-post-view.tsx).
 
 interface ArticleContentProps {
   post: BlogPost;
@@ -196,6 +197,13 @@ export function ArticleContent({ post }: ArticleContentProps) {
   // Calculate TTS progress based on word index
   const ttsProgress = words.length > 0 ? (currentWordIndex / words.length) * 100 : 0;
 
+  const authorInitials = post.author.name
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0].toUpperCase())
+    .join('') || 'A';
+
   return (
     <>
       {/* Reading Progress Bar - Fixed at very top */}
@@ -244,7 +252,7 @@ export function ArticleContent({ post }: ArticleContentProps) {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 md:pb-8 border-b border-border">
               <div className="flex items-center gap-3 md:gap-4">
                 <div className="w-10 h-10 md:w-12 md:h-12 rounded-full bg-gradient-to-br from-[#FF4D8E] to-[#8B5CF6] flex items-center justify-center text-white font-semibold text-sm md:text-base overflow-hidden">
-                  <span>YA</span>
+                  <span>{authorInitials}</span>
                 </div>
                 <div>
                   <p className="font-medium text-foreground text-sm md:text-base">{post.author.name}</p>
@@ -269,6 +277,7 @@ export function ArticleContent({ post }: ArticleContentProps) {
           <div
             ref={articleRef}
             className="
+              rte-content
               prose
               prose-sm
               md:prose-lg
