@@ -101,7 +101,7 @@ export default function BlogPage() {
               transition={{ duration: 0.6, delay: Math.min(index, 5) * 0.1 }}
             >
               <Link href={`/blog/${post.slug}`} className="block group">
-                <div className="h-full rounded-xl md:rounded-2xl bg-white/60 dark:bg-white/5 backdrop-blur-md border border-white/30 dark:border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.06)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.2)] p-4 md:p-6 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_12px_40px_rgba(0,0,0,0.1)] dark:hover:shadow-[0_12px_40px_rgba(0,0,0,0.3)]">
+                <div dir={post.direction ?? 'auto'} lang={post.lang} className="h-full rounded-xl md:rounded-2xl bg-white/60 dark:bg-white/5 backdrop-blur-md border border-white/30 dark:border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.06)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.2)] p-4 md:p-6 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_12px_40px_rgba(0,0,0,0.1)] dark:hover:shadow-[0_12px_40px_rgba(0,0,0,0.3)]">
                   {/* Category & Reading Time */}
                   <div className="flex flex-wrap items-center gap-2 md:gap-3 mb-3 md:mb-4">
                     <span

@@ -6,12 +6,15 @@ import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Save, Eye, PenLine, Trash2, Clock } from 'lucide-react';
-import { RichTextEditor, RichTextEditorHandle } from '@/components/blog/rich-text-editor';
+import { EditorDirection, RichTextEditor, RichTextEditorHandle } from '@/components/blog/rich-text-editor';
 import {
   LocalBlogPost,
   POST_CATEGORIES,
   PostDraft,
+  applyAutoDirection,
   clearDraft,
+  detectDirection,
+  detectLanguage,
   estimateReadingTime,
   formatPostDate,
   getDraft,
@@ -85,6 +88,8 @@ function NewPostForm({ draft }: { draft: PostDraft | null }) {
   const [errors, setErrors] = useState<FormErrors>({});
   const [showPreview, setShowPreview] = useState(false);
   const [dismissedRestore, setDismissedRestore] = useState(false);
+  // null = let the browser decide from the text, which already handles Hebrew.
+  const [direction, setDirection] = useState<EditorDirection>(draft?.direction ?? null);
 
   // The editor owns the live body (it is uncontrolled — see rich-text-editor.tsx).
   // `contentHtml` is a snapshot of it, refreshed only at the points that re-render
@@ -104,7 +109,7 @@ function NewPostForm({ draft }: { draft: PostDraft | null }) {
       const html = editorApi.current?.getHtml() ?? contentHtml;
       if (!title && !excerpt && !htmlToPlainText(html)) return;
 
-      saveDraft({ title, excerpt, category, authorName, contentHtml: html });
+      saveDraft({ title, excerpt, category, authorName, contentHtml: html, direction });
       if (draftStatusRef.current) {
         const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
         draftStatusRef.current.textContent = `Draft saved ${time}`;
@@ -112,7 +117,7 @@ function NewPostForm({ draft }: { draft: PostDraft | null }) {
     }, AUTOSAVE_INTERVAL_MS);
 
     return () => clearInterval(timer);
-  }, [authorName, category, contentHtml, excerpt, title]);
+  }, [authorName, category, contentHtml, direction, excerpt, title]);
 
   const handleDiscard = useCallback(() => {
     if (!window.confirm('Discard this draft? This cannot be undone.')) return;
@@ -129,7 +134,7 @@ function NewPostForm({ draft }: { draft: PostDraft | null }) {
   }, []);
 
   const handlePublish = useCallback(() => {
-    const cleanHtml = sanitizeHtml(editorApi.current?.getHtml() ?? contentHtml);
+    const cleanHtml = applyAutoDirection(sanitizeHtml(editorApi.current?.getHtml() ?? contentHtml));
     const plainText = htmlToPlainText(cleanHtml);
 
     const nextErrors: FormErrors = {};
@@ -151,12 +156,15 @@ function NewPostForm({ draft }: { draft: PostDraft | null }) {
       readingTime: estimateReadingTime(plainText),
       author: { name: authorName.trim() || sessionName || 'Anonymous' },
       createdAt: new Date().toISOString(),
+      // The title matters as much as the body here: a Hebrew post usually has both.
+      direction: direction ?? detectDirection(`${title} ${plainText}`),
+      lang: detectLanguage(`${title} ${plainText}`),
     };
 
     saveLocalPost(post);
     clearDraft();
     router.push(`/blog/${post.slug}`);
-  }, [authorName, category, contentHtml, excerpt, router, sessionName, title]);
+  }, [authorName, category, contentHtml, direction, excerpt, router, sessionName, title]);
 
   const togglePreview = useCallback(() => {
     const live = editorApi.current?.getHtml();
@@ -185,6 +193,7 @@ function NewPostForm({ draft }: { draft: PostDraft | null }) {
             id="post-title"
             value={title}
             onChange={(e) => setTitle(e.target.value)}
+            dir={direction ?? 'auto'}
             placeholder="A headline worth clicking"
             className={`${fieldClass} text-base font-medium placeholder:font-normal`}
           />
@@ -200,6 +209,7 @@ function NewPostForm({ draft }: { draft: PostDraft | null }) {
             id="post-excerpt"
             value={excerpt}
             onChange={(e) => setExcerpt(e.target.value)}
+            dir={direction ?? 'auto'}
             rows={2}
             placeholder="One or two sentences that show up on the blog index."
             className={`${fieldClass} resize-y`}
@@ -256,7 +266,10 @@ function NewPostForm({ draft }: { draft: PostDraft | null }) {
           </div>
 
           {showPreview ? (
-            <div className="rte-content min-h-[320px] rounded-xl border border-border bg-white/60 px-4 py-4 text-sm leading-relaxed text-foreground dark:bg-white/5 md:text-base md:leading-[1.8]">
+            <div
+              dir={direction ?? 'auto'}
+              className="rte-content min-h-[320px] rounded-xl border border-border bg-white/60 px-4 py-4 text-sm leading-relaxed text-foreground dark:bg-white/5 md:text-base md:leading-[1.8]"
+            >
               {htmlToPlainText(previewHtml) ? (
                 // Sanitized against an allow-list immediately above.
                 <div dangerouslySetInnerHTML={{ __html: previewHtml }} />
@@ -269,6 +282,8 @@ function NewPostForm({ draft }: { draft: PostDraft | null }) {
               ref={editorApi}
               initialHtml={contentHtml}
               onBlur={setContentHtml}
+              direction={direction}
+              onDirectionChange={setDirection}
               placeholder="Start writing… use the toolbar for headings, lists, quotes and links."
             />
           )}

@@ -35,6 +35,10 @@ const ALLOWED_ATTRS: Record<string, string[]> = {
   A: ['href', 'target', 'rel'],
 };
 
+// Allowed on any element: needed for mixed Hebrew/English posts.
+const GLOBAL_ATTRS = ['dir'];
+const DIR_VALUES = new Set(['ltr', 'rtl', 'auto']);
+
 function isSafeHref(href: string): boolean {
   const value = href.trim().toLowerCase();
   if (value.startsWith('javascript:') || value.startsWith('data:') || value.startsWith('vbscript:')) {
@@ -58,11 +62,16 @@ function cleanElement(el: Element) {
       continue;
     }
 
-    const allowed = ALLOWED_ATTRS[child.tagName] ?? [];
+    const allowed = [...(ALLOWED_ATTRS[child.tagName] ?? []), ...GLOBAL_ATTRS];
     for (const attr of Array.from(child.attributes)) {
       if (!allowed.includes(attr.name.toLowerCase())) {
         child.removeAttribute(attr.name);
       }
+    }
+
+    const dir = child.getAttribute('dir');
+    if (dir !== null && !DIR_VALUES.has(dir.toLowerCase())) {
+      child.removeAttribute('dir');
     }
 
     // Turning paragraphs into a list leaves `<p><ul>…</ul></p>`, which the parser
@@ -109,6 +118,30 @@ export function sanitizeHtml(html: string): string {
   return root.innerHTML;
 }
 
+const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'LI', 'BLOCKQUOTE', 'PRE']);
+
+/**
+ * Marks each block with `dir="auto"` so the browser picks its direction from its
+ * own first strong character. That is what lets one post hold both a Hebrew
+ * paragraph and an English one and have each align correctly.
+ */
+export function applyAutoDirection(html: string): string {
+  if (typeof window === 'undefined') return html;
+
+  const doc = new DOMParser().parseFromString(`<body><div id="rte-root">${html}</div></body>`, 'text/html');
+  const root = doc.getElementById('rte-root');
+  if (!root) return html;
+
+  for (const block of Array.from(root.querySelectorAll('*'))) {
+    // Leave an explicit direction alone — the author chose it.
+    if (BLOCK_TAGS.has(block.tagName) && !block.hasAttribute('dir')) {
+      block.setAttribute('dir', 'auto');
+    }
+  }
+
+  return root.innerHTML;
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Derived fields                                                            */
 /* -------------------------------------------------------------------------- */
@@ -130,6 +163,36 @@ export function htmlToPlainText(html: string): string {
     .trim();
 }
 
+/* -------------------------------------------------------------------------- */
+/*  Text direction                                                            */
+/* -------------------------------------------------------------------------- */
+
+// Hebrew, Arabic, Syriac, Thaana, N'Ko and the Arabic presentation forms.
+const RTL_CHARS = /[֐-׿؀-ۿ܀-ݏހ-޿߀-߿יִ-﷿ﹰ-﻿]/;
+const LTR_CHARS = /[A-Za-zÀ-ʯͰ-֏]/;
+
+const HEBREW_CHARS = /[֐-׿יִ-ﭏ]/;
+const ARABIC_CHARS = /[؀-ۿﭐ-﷿ﹰ-﻿]/;
+
+/**
+ * Direction of the first strong character, which is the same rule the browser
+ * applies for `dir="auto"`.
+ */
+export function detectDirection(text: string): 'ltr' | 'rtl' {
+  for (const char of text) {
+    if (RTL_CHARS.test(char)) return 'rtl';
+    if (LTR_CHARS.test(char)) return 'ltr';
+  }
+  return 'ltr';
+}
+
+/** Coarse language tag for the TTS voice and for assistive tech. */
+export function detectLanguage(text: string): string {
+  if (HEBREW_CHARS.test(text)) return 'he';
+  if (ARABIC_CHARS.test(text)) return 'ar';
+  return 'en';
+}
+
 export function countWords(text: string): number {
   return text.split(/\s+/).filter(Boolean).length;
 }
@@ -146,7 +209,9 @@ export function slugify(title: string): string {
   return title
     .toLowerCase()
     .trim()
-    .replace(/[^a-z0-9\s-]/g, '')
+    // Letters from any script, so a Hebrew title keeps a readable slug rather
+    // than being stripped down to nothing.
+    .replace(/[^\p{L}\p{N}\s-]/gu, '')
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '')
@@ -251,6 +316,8 @@ export interface PostDraft {
   category: string;
   authorName: string;
   contentHtml: string;
+  /** Explicit direction the author picked, or null for automatic. */
+  direction?: 'ltr' | 'rtl' | null;
   savedAt: string;
 }
 

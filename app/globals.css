@@ -501,10 +501,11 @@ html, body {
 .rte-content h3 { font-size: 1.25rem; }
 .rte-content h4 { font-size: 1.075rem; }
 
+/* Logical properties throughout, so RTL posts (Hebrew, Arabic) mirror correctly */
 .rte-content ul,
 .rte-content ol {
   margin: 0 0 1rem;
-  padding-left: 1.5rem;
+  padding-inline-start: 1.5rem;
 }
 
 .rte-content ul { list-style: disc; }
@@ -514,9 +515,12 @@ html, body {
 .rte-content blockquote {
   margin: 1.5rem 0;
   padding: 0.75rem 1.25rem;
-  border-left: 4px solid #FF4D8E;
+  border-inline-start: 4px solid #FF4D8E;
   background-color: rgba(255, 77, 142, 0.05);
-  border-radius: 0 0.5rem 0.5rem 0;
+  border-start-start-radius: 0;
+  border-end-start-radius: 0;
+  border-start-end-radius: 0.5rem;
+  border-end-end-radius: 0.5rem;
 }
 
 .rte-content blockquote p:last-child {

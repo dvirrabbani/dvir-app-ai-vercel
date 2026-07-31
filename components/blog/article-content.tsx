@@ -48,8 +48,10 @@ export function ArticleContent({ post }: ArticleContentProps) {
       const availableVoices = speechSynthesis.getVoices();
       if (availableVoices.length === 0) return;
 
-      const englishVoices = availableVoices.filter(v => v.lang.startsWith('en'));
-      const voicesToUse = englishVoices.length > 0 ? englishVoices : availableVoices;
+      // Offer voices for the language the post is written in, e.g. Hebrew.
+      const postLang = post.lang || 'en';
+      const matchingVoices = availableVoices.filter(v => v.lang.toLowerCase().startsWith(postLang));
+      const voicesToUse = matchingVoices.length > 0 ? matchingVoices : availableVoices;
       setVoices(voicesToUse);
 
       if (!selectedVoice) {
@@ -71,7 +73,7 @@ export function ArticleContent({ post }: ArticleContentProps) {
         speechSynthesis.onvoiceschanged = null;
       }
     };
-  }, [ttsSupported, selectedVoice]);
+  }, [ttsSupported, selectedVoice, post.lang]);
 
   // Parse words for progress tracking
   useEffect(() => {
@@ -114,6 +116,7 @@ export function ArticleContent({ post }: ArticleContentProps) {
     const utterance = new SpeechSynthesisUtterance(post.content);
     utterance.rate = speed;
     utterance.pitch = 1;
+    utterance.lang = selectedVoice?.lang || post.lang || 'en-US';
 
     if (selectedVoice) {
       utterance.voice = selectedVoice;
@@ -141,7 +144,7 @@ export function ArticleContent({ post }: ArticleContentProps) {
     };
 
     utteranceRef.current = utterance;
-  }, [ttsSupported, post.content, selectedVoice, speed]);
+  }, [ttsSupported, post.content, post.lang, selectedVoice, speed]);
 
   useEffect(() => {
     initTTS();
@@ -216,7 +219,11 @@ export function ArticleContent({ post }: ArticleContentProps) {
 
       {/* Article */}
       <main className="pt-24 md:pt-28 pb-24 md:pb-32 min-h-screen">
-        <article className="container mx-auto px-4 md:px-6 max-w-3xl">
+        <article
+          dir={post.direction ?? 'auto'}
+          lang={post.lang}
+          className="container mx-auto px-4 md:px-6 max-w-3xl"
+        >
           {/* Back Link */}
           <Link
             href="/blog"
