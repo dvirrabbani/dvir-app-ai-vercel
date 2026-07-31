@@ -4,16 +4,8 @@ import { useCallback } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
 import { ArrowLeft, Clock, Calendar, ArrowRight, PenLine, Trash2 } from 'lucide-react';
-import { LocalBlogPost, deleteLocalPost } from '@/lib/local-posts';
+import { LocalBlogPost, deleteLocalPost, getCategoryColor } from '@/lib/local-posts';
 import { useLocalPosts } from '@/lib/use-local-posts';
-
-const categoryColors: Record<string, string> = {
-  Engineering: '#FF4D8E',
-  Design: '#00C2FF',
-  Framework: '#FF9100',
-  Product: '#8B5CF6',
-  Personal: '#10B981',
-};
 
 export default function BlogPage() {
   // Every post lives in local storage, so the list is empty until hydration.
@@ -107,7 +99,7 @@ export default function BlogPage() {
                   <div dir="ltr" className="flex flex-wrap items-center gap-2 md:gap-3 mb-3 md:mb-4">
                     <span
                       className="px-2 md:px-3 py-1 rounded-full text-xs font-medium text-white"
-                      style={{ backgroundColor: categoryColors[post.category] || '#FF4D8E' }}
+                      style={{ backgroundColor: getCategoryColor(post.category) }}
                     >
                       {post.category}
                     </span>

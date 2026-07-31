@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Play, Pause, Square, Volume2, VolumeX, SkipBack, Settings, X } from 'lucide-react';
 import { BlogPost } from '@/lib/blog';
+import { getCategoryColor } from '@/lib/local-posts';
 
 // Note: Blog content HTML comes either from our own hardcoded lib/blog.ts file
 // or from a locally saved post, which is sanitized against an allow-list before
@@ -200,6 +201,8 @@ export function ArticleContent({ post }: ArticleContentProps) {
   // Calculate TTS progress based on word index
   const ttsProgress = words.length > 0 ? (currentWordIndex / words.length) * 100 : 0;
 
+  const categoryColor = getCategoryColor(post.category);
+
   const authorInitials = post.author.name
     .split(/\s+/)
     .filter(Boolean)
@@ -238,7 +241,11 @@ export function ArticleContent({ post }: ArticleContentProps) {
             {/* Metadata stays left-to-right even on an RTL post: the category,
                 reading time and date are written in English either way. */}
             <div dir="ltr" className="flex flex-wrap items-center gap-2 md:gap-3 mb-4 md:mb-6">
-              <span className="text-xs md:text-sm font-medium px-2 md:px-3 py-1 rounded-full bg-[#FF4D8E]/10 text-[#FF4D8E]">
+              <span
+                className="text-xs md:text-sm font-medium px-2 md:px-3 py-1 rounded-full"
+                // Same colour the card uses on the index, at 10% for the pill background.
+                style={{ backgroundColor: `${categoryColor}1a`, color: categoryColor }}
+              >
                 {post.category}
               </span>
               <span className="text-xs md:text-sm text-muted-foreground">

@@ -477,6 +477,18 @@ html, body {
   outline-offset: 2px;
 }
 
+/* Category picker options. `:hover` covers the mouse without depending on the
+   menu library's state, and [data-highlighted] — which Radix sets as you arrow
+   through the list — covers the keyboard. */
+.category-option:hover,
+.category-option[data-highlighted] {
+  background-color: rgba(255, 77, 142, 0.14);
+}
+
+.category-option[data-state="checked"] {
+  font-weight: 600;
+}
+
 /* Rendered post body — shared by the editor, its preview, and the article page */
 .rte-content > *:first-child {
   margin-top: 0;

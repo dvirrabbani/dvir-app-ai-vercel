@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { useSession } from 'next-auth/react';
 import { motion } from 'framer-motion';
 import { ArrowLeft, Save, Eye, PenLine, Trash2, Clock } from 'lucide-react';
+import { CategorySelect } from '@/components/blog/category-select';
 import { EditorDirection, RichTextEditor, RichTextEditorHandle } from '@/components/blog/rich-text-editor';
 import {
   LocalBlogPost,
@@ -223,18 +224,7 @@ function NewPostForm({ draft }: { draft: PostDraft | null }) {
             <label htmlFor="post-category" className="mb-1.5 block text-sm font-medium text-foreground">
               Category
             </label>
-            <select
-              id="post-category"
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              className={`${fieldClass} cursor-pointer`}
-            >
-              {POST_CATEGORIES.map((option) => (
-                <option key={option} value={option}>
-                  {option}
-                </option>
-              ))}
-            </select>
+            <CategorySelect id="post-category" value={category} onChange={setCategory} />
           </div>
 
           <div>
