@@ -214,8 +214,8 @@ export function ensureSeeded(): void {
     writeLocalPosts(
       getDefaultPosts().map<LocalBlogPost>((post) => ({
         ...post,
-        // Their published date is all we have to order them by.
-        createdAt: new Date(post.date).toISOString(),
+        // Fall back to the published date when the seed carries no timestamp.
+        createdAt: post.createdAt ?? new Date(post.date).toISOString(),
       }))
     );
   } catch {

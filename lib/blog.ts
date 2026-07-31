@@ -11,9 +11,25 @@ export interface BlogPost {
     name: string;
     avatar?: string;
   };
+  /** Optional: kept when a post is pasted in from local storage, else derived from `date`. */
+  createdAt?: string;
 }
 
 const posts: BlogPost[] = [
+  {
+    "slug": "finally-a-place-to-express",
+    "title": "Finally a place to express",
+    "excerpt": "I will write about my journey and how to become a better person",
+    "content": "Let's start",
+    "contentHtml": "<p>Let's start</p><p><br></p>",
+    "category": "Engineering",
+    "date": "July 31, 2026",
+    "readingTime": 1,
+    "author": {
+      "name": "Dvir"
+    },
+    "createdAt": "2026-07-31T08:57:02.904Z"
+  },
   {
     slug: 'why-we-chose-bun',
     title: 'Why We Chose Bun Over npm for This Boilerplate',
@@ -219,7 +235,6 @@ With Next.js 14, the App Router is stable and performant. The rough edges have b
 <p>It's time to build.</p>
 `,
   },
-
 ];
 
 /**
