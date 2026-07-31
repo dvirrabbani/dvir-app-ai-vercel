@@ -19,6 +19,8 @@ import {
   Undo2,
   Redo2,
   RemoveFormatting,
+  PilcrowLeft,
+  PilcrowRight,
   Check,
   X,
 } from 'lucide-react';
@@ -35,12 +37,17 @@ export interface RichTextEditorHandle {
   focus: () => void;
 }
 
+/** `null` lets the browser choose per the first strong character typed. */
+export type EditorDirection = 'ltr' | 'rtl' | null;
+
 interface RichTextEditorProps {
   /** Read once, on mount — the editor is uncontrolled from then on. */
   initialHtml?: string;
   placeholder?: string;
   className?: string;
   onBlur?: (html: string) => void;
+  direction?: EditorDirection;
+  onDirectionChange?: (direction: EditorDirection) => void;
   ref?: React.Ref<RichTextEditorHandle>;
 }
 
@@ -69,19 +76,24 @@ function ToolbarButton({
   command,
   title,
   children,
+  active,
 }: {
   onClick: () => void;
   /** Marks the button as stateful; `block:h2` style values track the block type. */
   command?: string;
   title: string;
   children: React.ReactNode;
+  /** For buttons driven by React state rather than by `refreshUi`. */
+  active?: boolean;
 }) {
   return (
     <button
       type="button"
       title={title}
       aria-label={title}
+      aria-pressed={active}
       data-command={command}
+      data-active={active === undefined ? undefined : String(active)}
       // Keep the caret in the editor: mousedown would otherwise blur it first.
       onMouseDown={(e) => e.preventDefault()}
       onClick={onClick}
@@ -100,7 +112,15 @@ function ToolbarDivider() {
   return <span className="mx-1 h-5 w-px shrink-0 bg-border" aria-hidden />;
 }
 
-export function RichTextEditor({ initialHtml, placeholder, className, onBlur, ref }: RichTextEditorProps) {
+export function RichTextEditor({
+  initialHtml,
+  placeholder,
+  className,
+  onBlur,
+  direction = null,
+  onDirectionChange,
+  ref,
+}: RichTextEditorProps) {
   const editorRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const surfaceRef = useRef<HTMLDivElement>(null);
@@ -372,6 +392,16 @@ export function RichTextEditor({ initialHtml, placeholder, className, onBlur, re
 
         <ToolbarDivider />
 
+        <ToolbarButton
+          title="Right-to-left (Hebrew, Arabic)"
+          active={direction === 'rtl'}
+          onClick={() => onDirectionChange?.(direction === 'rtl' ? null : 'rtl')}
+        >
+          {direction === 'rtl' ? <PilcrowRight className="h-4 w-4" /> : <PilcrowLeft className="h-4 w-4" />}
+        </ToolbarButton>
+
+        <ToolbarDivider />
+
         <ToolbarButton title="Undo (Ctrl+Z)" onClick={() => exec('undo')}>
           <Undo2 className="h-4 w-4" />
         </ToolbarButton>
@@ -422,7 +452,7 @@ export function RichTextEditor({ initialHtml, placeholder, className, onBlur, re
 
       {/* Editable surface */}
       <div ref={surfaceRef} data-empty="true" className="group/rte relative">
-        <p className="pointer-events-none absolute left-4 top-4 hidden text-sm text-muted-foreground group-data-[empty=true]/rte:block md:text-base">
+        <p className="pointer-events-none absolute start-4 top-4 hidden text-sm text-muted-foreground group-data-[empty=true]/rte:block md:text-base">
           {placeholder ?? 'Write your post…'}
         </p>
         <div
@@ -432,6 +462,8 @@ export function RichTextEditor({ initialHtml, placeholder, className, onBlur, re
           role="textbox"
           aria-multiline="true"
           aria-label="Post content"
+          // `auto` follows the first strong character, so typing Hebrew flips it.
+          dir={direction ?? 'auto'}
           onInput={refreshUi}
           onBlur={() => onBlur?.(editorRef.current?.innerHTML ?? '')}
           onPaste={handlePaste}

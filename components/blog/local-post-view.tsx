@@ -8,10 +8,23 @@ import { sanitizeHtml } from '@/lib/local-posts';
 import { useLocalPosts } from '@/lib/use-local-posts';
 
 /**
+ * A non-Latin slug (Hebrew, Arabic) reaches the route percent-encoded, while it
+ * is stored as written — so it has to be decoded before matching.
+ */
+function decodeSlug(slug: string): string {
+  try {
+    return decodeURIComponent(slug);
+  } catch {
+    return slug; // Malformed escape sequence — compare it as-is.
+  }
+}
+
+/**
  * Renders a post from this browser's local storage, where every post lives.
  */
-export function LocalPostView({ slug }: { slug: string }) {
+export function LocalPostView({ slug: rawSlug }: { slug: string }) {
   const { posts, hydrated } = useLocalPosts();
+  const slug = decodeSlug(rawSlug);
 
   const post = useMemo(() => {
     const stored = posts.find((candidate) => candidate.slug === slug);

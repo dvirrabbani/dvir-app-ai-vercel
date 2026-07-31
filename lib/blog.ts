@@ -13,6 +13,10 @@ export interface BlogPost {
   };
   /** Optional: kept when a post is pasted in from local storage, else derived from `date`. */
   createdAt?: string;
+  /** Reading direction of the body. Detected from the text when a post is saved. */
+  direction?: 'ltr' | 'rtl';
+  /** BCP 47 tag ("he", "ar", "en"), used for the TTS voice and assistive tech. */
+  lang?: string;
 }
 
 const posts: BlogPost[] = [
