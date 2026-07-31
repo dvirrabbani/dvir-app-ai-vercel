@@ -235,7 +235,9 @@ export function ArticleContent({ post }: ArticleContentProps) {
 
           {/* Article Header */}
           <header className="mb-8 md:mb-12">
-            <div className="flex flex-wrap items-center gap-2 md:gap-3 mb-4 md:mb-6">
+            {/* Metadata stays left-to-right even on an RTL post: the category,
+                reading time and date are written in English either way. */}
+            <div dir="ltr" className="flex flex-wrap items-center gap-2 md:gap-3 mb-4 md:mb-6">
               <span className="text-xs md:text-sm font-medium px-2 md:px-3 py-1 rounded-full bg-[#FF4D8E]/10 text-[#FF4D8E]">
                 {post.category}
               </span>
