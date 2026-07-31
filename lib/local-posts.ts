@@ -25,7 +25,7 @@ const ALLOWED_TAGS = new Set([
   'STRONG', 'B', 'EM', 'I', 'U', 'S', 'STRIKE',
   'H1', 'H2', 'H3', 'H4',
   'UL', 'OL', 'LI',
-  'BLOCKQUOTE', 'CODE', 'PRE', 'A',
+  'BLOCKQUOTE', 'CODE', 'PRE', 'A', 'IMG',
 ]);
 
 // Removed with their contents, rather than unwrapped.
@@ -33,6 +33,7 @@ const DROPPED_TAGS = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'L
 
 const ALLOWED_ATTRS: Record<string, string[]> = {
   A: ['href', 'target', 'rel'],
+  IMG: ['src', 'alt', 'title'],
 };
 
 // Allowed on any element: needed for mixed Hebrew/English posts.
@@ -45,6 +46,30 @@ function isSafeHref(href: string): boolean {
     return false;
   }
   return true;
+}
+
+/** Images are only ever loaded over http(s) — never from a data: or script URL. */
+export function isSafeImageSrc(src: string): boolean {
+  try {
+    const { protocol } = new URL(src.trim(), window.location.origin);
+    return protocol === 'http:' || protocol === 'https:';
+  } catch {
+    return false;
+  }
+}
+
+const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i;
+
+/** True for a URL that clearly points at an image, which is what makes pasting one work. */
+export function isImageUrl(value: string): boolean {
+  const text = value.trim();
+  if (/\s/.test(text) || !isSafeImageSrc(text)) return false;
+
+  try {
+    return IMAGE_EXTENSIONS.test(new URL(text).pathname);
+  } catch {
+    return false;
+  }
 }
 
 function cleanElement(el: Element) {
@@ -99,6 +124,12 @@ function cleanElement(el: Element) {
         child.setAttribute('rel', 'noopener noreferrer');
         child.setAttribute('target', '_blank');
       }
+    }
+
+    // An image whose source is not a plain http(s) URL is dropped outright.
+    if (child.tagName === 'IMG' && !isSafeImageSrc(child.getAttribute('src') ?? '')) {
+      child.remove();
+      continue;
     }
   }
 }

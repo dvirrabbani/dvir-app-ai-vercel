@@ -21,11 +21,12 @@ import {
   RemoveFormatting,
   PilcrowLeft,
   PilcrowRight,
+  ImagePlus,
   Check,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { countWords, sanitizeHtml } from '@/lib/local-posts';
+import { countWords, isImageUrl, isSafeImageSrc, sanitizeHtml } from '@/lib/local-posts';
 
 const EMPTY_PARAGRAPH = '<p><br></p>';
 
@@ -39,6 +40,9 @@ export interface RichTextEditorHandle {
 
 /** `null` lets the browser choose per the first strong character typed. */
 export type EditorDirection = 'ltr' | 'rtl' | null;
+
+/** Which kind of URL the inline input is collecting, or `null` when it is closed. */
+type UrlMode = 'link' | 'image' | null;
 
 interface RichTextEditorProps {
   /** Read once, on mount — the editor is uncontrolled from then on. */
@@ -127,9 +131,9 @@ export function RichTextEditor({
   const countRef = useRef<HTMLSpanElement>(null);
   const savedRangeRef = useRef<Range | null>(null);
 
-  // The only React state here: the link bar, which is opened by a click, never by typing.
-  const [linkOpen, setLinkOpen] = useState(false);
-  const [linkUrl, setLinkUrl] = useState('');
+  // The only React state here: the URL bar, which is opened by a click, never by typing.
+  const [urlMode, setUrlMode] = useState<UrlMode>(null);
+  const [urlValue, setUrlValue] = useState('');
 
   /* ---------------------------------------------------------------------- */
   /*  Imperative UI updates                                                  */
@@ -260,28 +264,47 @@ export function RichTextEditor({
     exec('insertHTML', `<code>${escapeHtml(text)}</code>`);
   }, [exec]);
 
-  const openLinkInput = useCallback(() => {
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
+  const insertImage = useCallback(
+    (url: string) => {
+      if (!isSafeImageSrc(url)) return;
+      exec('insertHTML', `<img src="${escapeHtml(url.trim())}" alt="">`);
+    },
+    [exec]
+  );
 
-    // The input steals focus, so remember where the link should go.
-    savedRangeRef.current = selection.getRangeAt(0).cloneRange();
-    setLinkUrl('https://');
-    setLinkOpen(true);
+  const openUrlInput = useCallback((mode: UrlMode) => {
+    const selection = window.getSelection();
+    // A link needs text to attach to; an image just needs a caret position.
+    if (mode === 'link' && (!selection || selection.rangeCount === 0 || selection.isCollapsed)) return;
+
+    if (selection && selection.rangeCount > 0) {
+      // The input steals focus, so remember where this belongs.
+      savedRangeRef.current = selection.getRangeAt(0).cloneRange();
+    }
+    setUrlValue('https://');
+    setUrlMode(mode);
   }, []);
 
-  const applyLink = useCallback(() => {
-    const url = linkUrl.trim();
+  const applyUrl = useCallback(() => {
+    const url = urlValue.trim();
+    const mode = urlMode;
     const range = savedRangeRef.current;
-    setLinkOpen(false);
+    setUrlMode(null);
 
-    if (!url || url === 'https://' || !range) return;
+    if (!url || url === 'https://' || !mode) return;
 
     const selection = window.getSelection();
-    selection?.removeAllRanges();
-    selection?.addRange(range);
-    exec('createLink', url);
-  }, [exec, linkUrl]);
+    if (range) {
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    }
+
+    if (mode === 'image') {
+      insertImage(url);
+    } else {
+      exec('createLink', url);
+    }
+  }, [exec, insertImage, urlMode, urlValue]);
 
   /* ---------------------------------------------------------------------- */
   /*  Input handling                                                         */
@@ -293,7 +316,10 @@ export function RichTextEditor({
       const html = event.clipboardData.getData('text/html');
       const text = event.clipboardData.getData('text/plain');
 
-      if (html) {
+      // Pasting the address of an image drops the image in, not its URL.
+      if (isImageUrl(text)) {
+        document.execCommand('insertHTML', false, `<img src="${escapeHtml(text.trim())}" alt="">`);
+      } else if (html) {
         document.execCommand('insertHTML', false, sanitizeHtml(html));
       } else {
         document.execCommand('insertText', false, text);
@@ -316,10 +342,10 @@ export function RichTextEditor({
         toggleBlock('h3');
       } else if (event.key.toLowerCase() === 'k') {
         event.preventDefault();
-        openLinkInput();
+        openUrlInput('link');
       }
     },
-    [openLinkInput, toggleBlock]
+    [openUrlInput, toggleBlock]
   );
 
   return (
@@ -380,7 +406,13 @@ export function RichTextEditor({
 
         <ToolbarDivider />
 
-        <ToolbarButton title="Add link (Ctrl+K)" onClick={openLinkInput}>
+        <ToolbarButton title="Insert image from URL" onClick={() => openUrlInput('image')}>
+          <ImagePlus className="h-4 w-4" />
+        </ToolbarButton>
+
+        <ToolbarDivider />
+
+        <ToolbarButton title="Add link (Ctrl+K)" onClick={() => openUrlInput('link')}>
           <Link2 className="h-4 w-4" />
         </ToolbarButton>
         <ToolbarButton title="Remove link" onClick={() => exec('unlink')}>
@@ -410,38 +442,42 @@ export function RichTextEditor({
         </ToolbarButton>
       </div>
 
-      {/* Link input */}
-      {linkOpen && (
+      {/* Link / image URL input */}
+      {urlMode && (
         <div className="flex items-center gap-2 border-b border-border bg-[#FF4D8E]/5 px-2 py-2">
-          <Link2 className="h-4 w-4 shrink-0 text-[#FF4D8E]" />
+          {urlMode === 'image' ? (
+            <ImagePlus className="h-4 w-4 shrink-0 text-[#FF4D8E]" />
+          ) : (
+            <Link2 className="h-4 w-4 shrink-0 text-[#FF4D8E]" />
+          )}
           <input
             autoFocus
-            value={linkUrl}
-            onChange={(e) => setLinkUrl(e.target.value)}
+            value={urlValue}
+            onChange={(e) => setUrlValue(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
                 e.preventDefault();
-                applyLink();
+                applyUrl();
               } else if (e.key === 'Escape') {
                 e.preventDefault();
-                setLinkOpen(false);
+                setUrlMode(null);
               }
             }}
-            placeholder="https://example.com"
-            aria-label="Link URL"
+            placeholder={urlMode === 'image' ? 'https://example.com/photo.jpg' : 'https://example.com'}
+            aria-label={urlMode === 'image' ? 'Image URL' : 'Link URL'}
             className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-sm outline-none focus:border-[#FF4D8E]/50"
           />
           <button
             type="button"
-            onClick={applyLink}
-            title="Apply link"
+            onClick={applyUrl}
+            title={urlMode === 'image' ? 'Insert image' : 'Apply link'}
             className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-[#FF4D8E] text-white hover:bg-[#FF4D8E]/90"
           >
             <Check className="h-4 w-4" />
           </button>
           <button
             type="button"
-            onClick={() => setLinkOpen(false)}
+            onClick={() => setUrlMode(null)}
             title="Cancel"
             className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10"
           >
