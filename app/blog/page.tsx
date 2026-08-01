@@ -3,12 +3,14 @@
 import { useCallback, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   Clock,
   Calendar,
   ArrowRight,
   PenLine,
+  Pencil,
   Trash2,
   ArrowDownWideNarrow,
   ArrowUpNarrowWide,
@@ -30,6 +32,7 @@ function postTime(post: LocalBlogPost): number {
 export default function BlogPage() {
   // Every post lives in local storage, so the list is empty until hydration.
   const { posts, hydrated } = useLocalPosts();
+  const router = useRouter();
 
   const [category, setCategory] = useState<string>(ALL_CATEGORIES);
   const [order, setOrder] = useState<SortOrder>('newest');
@@ -54,6 +57,17 @@ export default function BlogPage() {
     if (!window.confirm(`Delete "${post.title}"? This cannot be undone.`)) return;
     deleteLocalPost(post.slug);
   }, []);
+
+  // A button rather than a link: the whole card is already a link, and anchors
+  // cannot be nested.
+  const handleEdit = useCallback(
+    (event: React.MouseEvent, post: LocalBlogPost) => {
+      event.preventDefault();
+      event.stopPropagation();
+      router.push(`/blog/${post.slug}/edit`);
+    },
+    [router]
+  );
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-[#FFF5F8] via-background to-background dark:from-[#1C1C1E] dark:via-[#1C1C1E] dark:to-[#1C1C1E]">
@@ -244,6 +258,15 @@ export default function BlogPage() {
                       {post.date}
                     </span>
                     <span className="flex items-center gap-2">
+                      <button
+                        type="button"
+                        onClick={(event) => handleEdit(event, post)}
+                        title="Edit this post"
+                        aria-label={`Edit ${post.title}`}
+                        className="rounded-full p-1.5 text-muted-foreground transition-colors hover:bg-black/5 hover:text-foreground dark:hover:bg-white/10"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
                       <button
                         type="button"
                         onClick={(event) => handleDelete(event, post)}
