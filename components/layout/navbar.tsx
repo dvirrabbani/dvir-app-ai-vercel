@@ -161,7 +161,7 @@ export function Navbar() {
             ) : (
               <Avatar className="w-9 h-9 border-2 border-[#FF4D8E]/30 cursor-pointer hover:border-[#FF4D8E]/60 transition-colors" onClick={() => signIn('google')}>
                 <AvatarFallback className="bg-gradient-to-br from-[#FF4D8E] to-[#FF9100] text-white text-sm font-medium">
-                  YA
+                  DR
                 </AvatarFallback>
               </Avatar>
             )}
