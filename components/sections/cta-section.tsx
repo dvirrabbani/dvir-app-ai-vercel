@@ -5,39 +5,41 @@ import { Star, Github, Twitter, Instagram, Youtube, Globe, ExternalLink } from '
 import { ButtonPrimary } from '@/components/ui/button-primary';
 import { RobotAvatar } from '@/components/ui/robot-avatar';
 
+// Every handle points home for now: the accounts behind them are not set up yet,
+// so sending people to the old owner's profiles would be worse than going nowhere.
 const socialLinks = [
   {
     name: 'GitHub',
-    handle: '@hoodini',
-    href: 'https://github.com/hoodini',
+    handle: '@dvir',
+    href: '/',
     icon: Github,
     color: '#333',
   },
   {
     name: 'X (Twitter)',
-    handle: '@yuvalav',
-    href: 'https://x.com/yuvalav',
+    handle: '@dvir',
+    href: '/',
     icon: Twitter,
     color: '#1DA1F2',
   },
   {
     name: 'Instagram',
-    handle: '@yuval_770',
-    href: 'https://instagram.com/yuval_770',
+    handle: 'dvir_in',
+    href: '/',
     icon: Instagram,
     color: '#E4405F',
   },
   {
     name: 'YouTube',
-    handle: '@yuv-ai',
-    href: 'https://youtube.com/@yuv-ai',
+    handle: '@dvir-ai',
+    href: '/',
     icon: Youtube,
     color: '#FF0000',
   },
   {
     name: 'Website',
-    handle: 'yuv.ai',
-    href: 'https://yuv.ai',
+    handle: 'dvir.ai',
+    href: '/',
     icon: Globe,
     color: '#FF4D8E',
   },
@@ -69,7 +71,7 @@ export function CTASection() {
           </p>
 
           <motion.a
-            href="https://github.com/hoodini/nextjs-bun-starter"
+            href="https://github.com/dvirrabbani/dvir-app-ai-vercel"
             target="_blank"
             rel="noopener noreferrer"
             whileHover={{ scale: 1.05 }}
@@ -107,8 +109,6 @@ export function CTASection() {
                 <motion.a
                   key={social.name}
                   href={social.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
                   initial={{ opacity: 0, y: 20 }}
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
@@ -138,9 +138,7 @@ export function CTASection() {
 
           {/* Linktree Button */}
           <motion.a
-            href="https://linktr.ee/yuvai"
-            target="_blank"
-            rel="noopener noreferrer"
+            href="/"
             whileHover={{ scale: 1.02 }}
             className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-gradient-to-r from-[#FF4D8E] to-[#FF9100] text-white font-medium hover:opacity-90 transition-opacity"
           >

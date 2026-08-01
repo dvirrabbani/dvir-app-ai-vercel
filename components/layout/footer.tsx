@@ -10,11 +10,12 @@ const footerLinks = [
   { href: '#contact', label: 'Contact' },
 ];
 
+// Point home until the real accounts exist — see the note in cta-section.tsx.
 const socialLinks = [
-  { href: 'https://github.com/hoodini', icon: Github, label: 'GitHub' },
-  { href: 'https://www.linkedin.com/in/%F0%9F%8E%97%EF%B8%8Fyuval-avidani-87081474/', icon: Linkedin, label: 'LinkedIn' },
-  { href: 'https://twitter.com/yuvai', icon: Twitter, label: 'Twitter' },
-  { href: 'mailto:info@yuv.ai', icon: Mail, label: 'Email' },
+  { href: '/', icon: Github, label: 'GitHub' },
+  { href: '/', icon: Linkedin, label: 'LinkedIn' },
+  { href: '/', icon: Twitter, label: 'Twitter' },
+  { href: '/', icon: Mail, label: 'Email' },
 ];
 
 function PhoenixLogo({ className = "w-6 h-6" }: { className?: string }) {
@@ -82,8 +83,6 @@ export function Footer() {
                 <a
                   key={social.label}
                   href={social.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
                   className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white/60 hover:text-[#FF4D8E] hover:bg-white/10 transition-all"
                   aria-label={social.label}
                 >

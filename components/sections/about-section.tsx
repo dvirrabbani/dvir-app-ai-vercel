@@ -96,8 +96,8 @@ export function AboutSection() {
                   <h3 className="text-2xl font-bold text-[#1C1C1E] mb-1">Dvir Rabbani</h3>
                   <p className="text-[#FF4D8E] font-medium mb-2">AI Builder & Speaker</p>
                   <div className="flex items-center gap-3 text-sm text-[#1C1C1E]/50">
-                    <a href="mailto:yuval.avidani@gmail.com" className="hover:text-[#1C1C1E] transition-colors">
-                      yuval.avidani@gmail.com
+                    <a href="/" className="hover:text-[#1C1C1E] transition-colors">
+                      dvir.ai
                     </a>
                   </div>
                 </div>
@@ -120,9 +120,7 @@ export function AboutSection() {
               <div className="mt-8 pt-6 border-t border-[#1C1C1E]/10">
                 <div className="flex flex-wrap gap-3">
                   <a
-                    href="https://github.com/hoodini"
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    href="/blog"
                     className="px-4 py-2 rounded-full border border-[#1C1C1E]/20 text-sm text-[#1C1C1E]/70 hover:text-[#1C1C1E] hover:border-[#1C1C1E]/40 transition-colors"
                   >
                     Blog content

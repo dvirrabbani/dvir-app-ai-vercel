@@ -53,7 +53,7 @@ bun create yuv-app my-project
 npm create yuv-app my-project
 
 # Or clone directly
-git clone https://github.com/hoodini/nextjs-bun-starter.git my-project`,
+git clone https://github.com/dvirrabbani/dvir-app-ai-vercel.git my-project`,
   },
   {
     number: 2,
