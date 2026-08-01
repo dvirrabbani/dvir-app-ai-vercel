@@ -20,9 +20,9 @@ export const metadata: Metadata = {
   authors: [{ name: "Dvir Rabbani", url: "https://yuv.ai" }],
   icons: {
     icon: [
-      { url: "/round-avatar.svg", type: "image/svg+xml" },
+      { url: "/robot-avatar.svg", type: "image/svg+xml" },
     ],
-    apple: "/round-avatar.svg",
+    apple: "/robot-avatar.svg",
   },
   openGraph: {
     title: "DVIR.AI | Dvir Rabbani - AI Builder & Speaker",

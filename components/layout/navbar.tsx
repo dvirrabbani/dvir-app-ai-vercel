@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import Image from 'next/image';
+import { RobotAvatar } from '@/components/ui/robot-avatar';
 import { useRouter, usePathname } from 'next/navigation';
 import { useSession, signIn, signOut } from 'next-auth/react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
@@ -91,12 +91,10 @@ export function Navbar() {
       >
         {/* Logo */}
         <button onClick={handleLogoClick} className="flex items-center gap-2 shrink-0 cursor-pointer">
-          <Image
-            src="/round-avatar.svg"
-            alt="DVIR.AI Logo"
-            width={24}
-            height={24}
-            className="rounded-full md:w-7 md:h-7"
+          <RobotAvatar
+            className="h-6 w-6 rounded-full md:h-7 md:w-7"
+            iconClassName="h-4 w-4 md:h-[18px] md:w-[18px]"
+            label="DVIR.AI logo"
           />
           <span className="text-base md:text-lg font-semibold text-foreground tracking-tight">
             DVIR.AI
