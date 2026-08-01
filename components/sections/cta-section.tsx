@@ -3,40 +3,43 @@
 import { motion } from 'framer-motion';
 import { Star, Github, Twitter, Instagram, Youtube, Globe, ExternalLink } from 'lucide-react';
 import { ButtonPrimary } from '@/components/ui/button-primary';
+import { RobotAvatar } from '@/components/ui/robot-avatar';
 
+// Every handle points home for now: the accounts behind them are not set up yet,
+// so sending people to the old owner's profiles would be worse than going nowhere.
 const socialLinks = [
   {
     name: 'GitHub',
-    handle: '@hoodini',
-    href: 'https://github.com/hoodini',
+    handle: '@dvir',
+    href: '/',
     icon: Github,
     color: '#333',
   },
   {
     name: 'X (Twitter)',
-    handle: '@yuvalav',
-    href: 'https://x.com/yuvalav',
+    handle: '@dvir',
+    href: '/',
     icon: Twitter,
     color: '#1DA1F2',
   },
   {
     name: 'Instagram',
-    handle: '@yuval_770',
-    href: 'https://instagram.com/yuval_770',
+    handle: 'dvir_in',
+    href: '/',
     icon: Instagram,
     color: '#E4405F',
   },
   {
     name: 'YouTube',
-    handle: '@yuv-ai',
-    href: 'https://youtube.com/@yuv-ai',
+    handle: '@dvir-ai',
+    href: '/',
     icon: Youtube,
     color: '#FF0000',
   },
   {
     name: 'Website',
-    handle: 'yuv.ai',
-    href: 'https://yuv.ai',
+    handle: 'dvir.ai',
+    href: '/',
     icon: Globe,
     color: '#FF4D8E',
   },
@@ -68,7 +71,7 @@ export function CTASection() {
           </p>
 
           <motion.a
-            href="https://github.com/hoodini/nextjs-bun-starter"
+            href="https://github.com/dvirrabbani/dvir-app-ai-vercel"
             target="_blank"
             rel="noopener noreferrer"
             whileHover={{ scale: 1.05 }}
@@ -106,8 +109,6 @@ export function CTASection() {
                 <motion.a
                   key={social.name}
                   href={social.href}
-                  target="_blank"
-                  rel="noopener noreferrer"
                   initial={{ opacity: 0, y: 20 }}
                   whileInView={{ opacity: 1, y: 0 }}
                   viewport={{ once: true }}
@@ -137,9 +138,7 @@ export function CTASection() {
 
           {/* Linktree Button */}
           <motion.a
-            href="https://linktr.ee/yuvai"
-            target="_blank"
-            rel="noopener noreferrer"
+            href="/"
             whileHover={{ scale: 1.02 }}
             className="inline-flex items-center gap-2 px-6 py-3 rounded-full bg-gradient-to-r from-[#FF4D8E] to-[#FF9100] text-white font-medium hover:opacity-90 transition-opacity"
           >
@@ -157,14 +156,14 @@ export function CTASection() {
           className="mt-16 pt-16 border-t border-white/10"
         >
           <div className="flex flex-col md:flex-row items-center justify-center gap-6">
-            <img
-              src="https://cdn.hailuoai.video/moss/prod/2026-01-01-02/user/multi_chat_file/1767204442417679023-304191379171532808_1767204439.jpg"
-              alt="Yuval Avidani"
+            <RobotAvatar
               className="w-20 h-20 rounded-full border-2 border-[#FF4D8E]/50"
+              iconClassName="h-10 w-10"
+              label="Dvir Rabbani"
             />
             <div className="text-center md:text-left">
-              <h4 className="text-xl font-bold mb-1">Yuval Avidani</h4>
-              <p className="text-white/60 mb-2">AWS AI Superstar | GitHub Star | Founder of YUV.AI</p>
+              <h4 className="text-xl font-bold mb-1">Dvir Rabbani</h4>
+              <p className="text-white/60 mb-2">AWS AI Superstar | GitHub Star | Founder of DVIR.AI</p>
               <div className="flex items-center justify-center md:justify-start gap-2">
                 <span className="px-2 py-1 rounded-full bg-[#FF4D8E]/20 text-[#FF4D8E] text-xs font-medium">
                   AI Builder

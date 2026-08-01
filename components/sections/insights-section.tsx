@@ -60,7 +60,7 @@ export function InsightsSection() {
           className="mb-12"
         >
           <h2 className="text-4xl md:text-5xl font-bold text-[#1C1C1E] mb-3">
-            YUV.AI Insights
+            DVIR.AI Insights
           </h2>
           <p className="text-[#1C1C1E]/60 text-lg max-w-xl">
             Thoughts and perspectives on AI, development, and building the future

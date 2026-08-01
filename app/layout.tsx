@@ -14,27 +14,27 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "YUV.AI | Yuval Avidani - AI Builder & Speaker",
-  description: "Innovating AI & Development. Building next-generation AI solutions and empowering developers to create transformative experiences. AWS AI Superstar, GitHub Star, Founder of YUV.AI Community.",
-  keywords: ["Yuval Avidani", "YUV.AI", "AI Builder", "AI Speaker", "Machine Learning", "Developer", "AWS AI Superstar", "GitHub Star"],
-  authors: [{ name: "Yuval Avidani", url: "https://yuv.ai" }],
+  title: "DVIR.AI | Dvir Rabbani - AI Builder & Speaker",
+  description: "Innovating AI & Development. Building next-generation AI solutions and empowering developers to create transformative experiences. AWS AI Superstar, GitHub Star, Founder of DVIR.AI Community.",
+  keywords: ["Dvir Rabbani", "DVIR.AI", "AI Builder", "AI Speaker", "Machine Learning", "Developer", "AWS AI Superstar", "GitHub Star"],
+  authors: [{ name: "Dvir Rabbani", url: "https://dvir.ai" }],
   icons: {
     icon: [
-      { url: "/round-avatar.svg", type: "image/svg+xml" },
+      { url: "/robot-avatar.svg", type: "image/svg+xml" },
     ],
-    apple: "/round-avatar.svg",
+    apple: "/robot-avatar.svg",
   },
   openGraph: {
-    title: "YUV.AI | Yuval Avidani - AI Builder & Speaker",
+    title: "DVIR.AI | Dvir Rabbani - AI Builder & Speaker",
     description: "Innovating AI & Development. Building next-generation AI solutions and empowering developers to create transformative experiences.",
     type: "website",
-    url: "https://yuv.ai",
+    url: "https://dvir.ai",
   },
   twitter: {
     card: "summary_large_image",
-    title: "YUV.AI | Yuval Avidani - AI Builder & Speaker",
+    title: "DVIR.AI | Dvir Rabbani - AI Builder & Speaker",
     description: "Innovating AI & Development. Building next-generation AI solutions and empowering developers.",
-    creator: "@yuvai",
+    creator: "@dvir",
   },
 };
 

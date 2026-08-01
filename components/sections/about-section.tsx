@@ -2,7 +2,7 @@
 
 import { motion } from 'framer-motion';
 import { Brain, Code2, Cpu, Globe, Sparkles, Zap } from 'lucide-react';
-import Image from 'next/image';
+import { RobotAvatar } from '@/components/ui/robot-avatar';
 
 const skills = [
   { icon: Brain, label: 'AI/ML', color: '#FF4D8E' },
@@ -26,8 +26,8 @@ const timeline = [
   },
   {
     year: '2022',
-    title: 'Founded YUV.AI',
-    description: 'Launched YUV.AI community to empower developers with AI tools and education.',
+    title: 'Founded DVIR.AI',
+    description: 'Launched DVIR.AI community to empower developers with AI tools and education.',
   },
   {
     year: '2020',
@@ -90,19 +90,14 @@ export function AboutSection() {
               {/* Profile Header */}
               <div className="flex items-start gap-6 mb-8">
                 <div className="relative w-20 h-20 rounded-2xl overflow-hidden border-2 border-[#FF4D8E]/20 shrink-0">
-                  <Image
-                    src="https://cdn.hailuoai.video/moss/prod/2026-01-01-02/user/multi_chat_file/1767204442417679023-304191379171532808_1767204439.jpg"
-                    alt="Yuval Avidani"
-                    fill
-                    className="object-cover"
-                  />
+                  <RobotAvatar className="h-full w-full" iconClassName="h-10 w-10" label="Dvir Rabbani" />
                 </div>
                 <div>
-                  <h3 className="text-2xl font-bold text-[#1C1C1E] mb-1">Yuval Avidani</h3>
+                  <h3 className="text-2xl font-bold text-[#1C1C1E] mb-1">Dvir Rabbani</h3>
                   <p className="text-[#FF4D8E] font-medium mb-2">AI Builder & Speaker</p>
                   <div className="flex items-center gap-3 text-sm text-[#1C1C1E]/50">
-                    <a href="mailto:yuval.avidani@gmail.com" className="hover:text-[#1C1C1E] transition-colors">
-                      yuval.avidani@gmail.com
+                    <a href="/" className="hover:text-[#1C1C1E] transition-colors">
+                      dvir.ai
                     </a>
                   </div>
                 </div>
@@ -114,7 +109,7 @@ export function AboutSection() {
                   I'm a passionate AI builder and speaker dedicated to pushing the boundaries of what's possible with artificial intelligence. With deep expertise in machine learning, full-stack development, and cloud architecture, I build solutions that transform how people work and create.
                 </p>
                 <p>
-                  As the founder of YUV.AI, I lead a community of developers exploring the frontiers of AI technology. My work spans from building production ML systems to speaking at international conferences about the future of AI-assisted development.
+                  As the founder of DVIR.AI, I lead a community of developers exploring the frontiers of AI technology. My work spans from building production ML systems to speaking at international conferences about the future of AI-assisted development.
                 </p>
                 <p>
                   When I'm not coding or speaking, you'll find me mentoring the next generation of AI engineers and contributing to open-source projects that democratize access to AI tools.
@@ -125,9 +120,7 @@ export function AboutSection() {
               <div className="mt-8 pt-6 border-t border-[#1C1C1E]/10">
                 <div className="flex flex-wrap gap-3">
                   <a
-                    href="https://github.com/hoodini"
-                    target="_blank"
-                    rel="noopener noreferrer"
+                    href="/blog"
                     className="px-4 py-2 rounded-full border border-[#1C1C1E]/20 text-sm text-[#1C1C1E]/70 hover:text-[#1C1C1E] hover:border-[#1C1C1E]/40 transition-colors"
                   >
                     Blog content

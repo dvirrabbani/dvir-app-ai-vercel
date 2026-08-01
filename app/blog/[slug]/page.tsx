@@ -5,7 +5,7 @@ interface BlogPostPageProps {
 }
 
 export const metadata = {
-  title: 'Blog | YUV.AI',
+  title: 'Blog | DVIR.AI',
   description: 'Thoughts on building modern web applications.',
 };
 
