@@ -93,13 +93,13 @@ export function Navbar() {
         <button onClick={handleLogoClick} className="flex items-center gap-2 shrink-0 cursor-pointer">
           <Image
             src="/round-avatar.svg"
-            alt="YUV.AI Logo"
+            alt="DVIR.AI Logo"
             width={24}
             height={24}
             className="rounded-full md:w-7 md:h-7"
           />
           <span className="text-base md:text-lg font-semibold text-foreground tracking-tight">
-            YUV.AI
+            DVIR.AI
           </span>
         </button>
 

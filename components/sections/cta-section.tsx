@@ -3,6 +3,7 @@
 import { motion } from 'framer-motion';
 import { Star, Github, Twitter, Instagram, Youtube, Globe, ExternalLink } from 'lucide-react';
 import { ButtonPrimary } from '@/components/ui/button-primary';
+import { RobotAvatar } from '@/components/ui/robot-avatar';
 
 const socialLinks = [
   {
@@ -157,14 +158,14 @@ export function CTASection() {
           className="mt-16 pt-16 border-t border-white/10"
         >
           <div className="flex flex-col md:flex-row items-center justify-center gap-6">
-            <img
-              src="https://cdn.hailuoai.video/moss/prod/2026-01-01-02/user/multi_chat_file/1767204442417679023-304191379171532808_1767204439.jpg"
-              alt="Yuval Avidani"
+            <RobotAvatar
               className="w-20 h-20 rounded-full border-2 border-[#FF4D8E]/50"
+              iconClassName="h-10 w-10"
+              label="Dvir Rabbani"
             />
             <div className="text-center md:text-left">
-              <h4 className="text-xl font-bold mb-1">Yuval Avidani</h4>
-              <p className="text-white/60 mb-2">AWS AI Superstar | GitHub Star | Founder of YUV.AI</p>
+              <h4 className="text-xl font-bold mb-1">Dvir Rabbani</h4>
+              <p className="text-white/60 mb-2">AWS AI Superstar | GitHub Star | Founder of DVIR.AI</p>
               <div className="flex items-center justify-center md:justify-start gap-2">
                 <span className="px-2 py-1 rounded-full bg-[#FF4D8E]/20 text-[#FF4D8E] text-xs font-medium">
                   AI Builder

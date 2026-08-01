@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion';
 import { ButtonPrimary } from '@/components/ui/button-primary';
 import { ArrowRight, Github, Linkedin, Twitter, Mail } from 'lucide-react';
-import Image from 'next/image';
+import { RobotAvatar } from '@/components/ui/robot-avatar';
 
 const socialLinks = [
   { href: 'https://github.com/hoodini', icon: Github, label: 'GitHub' },
@@ -165,13 +165,7 @@ export function HeroSection() {
 
               {/* Profile Image */}
               <div className="relative w-64 h-64 md:w-80 md:h-80 lg:w-96 lg:h-96 rounded-full overflow-hidden border-4 border-white/20 dark:border-white/10 shadow-2xl">
-                <Image
-                  src="https://cdn.hailuoai.video/moss/prod/2026-01-01-02/user/multi_chat_file/1767204442417679023-304191379171532808_1767204439.jpg"
-                  alt="Yuval Avidani"
-                  fill
-                  className="object-cover"
-                  priority
-                />
+                <RobotAvatar className="h-full w-full" iconClassName="h-1/2 w-1/2" label="Dvir Rabbani" />
               </div>
 
               {/* Floating badges */}

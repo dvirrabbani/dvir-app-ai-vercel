@@ -56,9 +56,9 @@ export function Footer() {
           <div className="flex flex-col items-center gap-3">
             <Link href="/" className="flex items-center gap-2">
               <PhoenixLogo className="w-8 h-8" />
-              <span className="text-xl font-semibold text-white">YUV.AI</span>
+              <span className="text-xl font-semibold text-white">DVIR.AI</span>
             </Link>
-            <p className="text-white/50 text-sm">Fly High With YUV.AI</p>
+            <p className="text-white/50 text-sm">Fly High With DVIR.AI</p>
           </div>
 
           {/* Navigation Links */}
@@ -96,7 +96,7 @@ export function Footer() {
           {/* Copyright */}
           <div className="pt-4 border-t border-white/10 w-full text-center">
             <p className="text-sm text-white/40">
-              &copy; {currentYear} YUV.AI. All rights reserved.
+              &copy; {currentYear} DVIR.AI. All rights reserved.
             </p>
           </div>
         </div>
