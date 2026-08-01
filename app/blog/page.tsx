@@ -1,15 +1,52 @@
 'use client';
 
-import { useCallback } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
 import Link from 'next/link';
-import { ArrowLeft, Clock, Calendar, ArrowRight, PenLine, Trash2 } from 'lucide-react';
+import {
+  ArrowLeft,
+  Clock,
+  Calendar,
+  ArrowRight,
+  PenLine,
+  Trash2,
+  ArrowDownWideNarrow,
+  ArrowUpNarrowWide,
+  ListFilter,
+} from 'lucide-react';
 import { LocalBlogPost, deleteLocalPost, getCategoryColor } from '@/lib/local-posts';
 import { useLocalPosts } from '@/lib/use-local-posts';
+
+type SortOrder = 'newest' | 'oldest';
+
+const ALL_CATEGORIES = 'All';
+
+/** Posts are ordered by when they were written; the display date is the fallback. */
+function postTime(post: LocalBlogPost): number {
+  const time = new Date(post.createdAt ?? post.date).getTime();
+  return Number.isNaN(time) ? 0 : time;
+}
 
 export default function BlogPage() {
   // Every post lives in local storage, so the list is empty until hydration.
   const { posts, hydrated } = useLocalPosts();
+
+  const [category, setCategory] = useState<string>(ALL_CATEGORIES);
+  const [order, setOrder] = useState<SortOrder>('newest');
+
+  // Only offer categories that actually have posts, with their counts.
+  const categoryCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const post of posts) {
+      counts.set(post.category, (counts.get(post.category) ?? 0) + 1);
+    }
+    return [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+  }, [posts]);
+
+  const visiblePosts = useMemo(() => {
+    const filtered = category === ALL_CATEGORIES ? posts : posts.filter((post) => post.category === category);
+    return [...filtered].sort((a, b) => (order === 'newest' ? postTime(b) - postTime(a) : postTime(a) - postTime(b)));
+  }, [posts, category, order]);
 
   const handleDelete = useCallback((event: React.MouseEvent, post: LocalBlogPost) => {
     event.preventDefault();
@@ -58,6 +95,70 @@ export default function BlogPage() {
         </motion.div>
       </header>
 
+      {/* Filters */}
+      {hydrated && posts.length > 0 && (
+        <div className="container mx-auto px-4 md:px-6">
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.4 }}
+            className="mb-6 rounded-xl border border-white/30 bg-white/60 p-4 backdrop-blur-md dark:border-white/10 dark:bg-white/5 md:mb-8 md:rounded-2xl md:p-5"
+          >
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+              {/* Category */}
+              <div className="min-w-0">
+                <h2 className="mb-2 flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <ListFilter className="h-3.5 w-3.5" />
+                  Category
+                </h2>
+                <div className="flex flex-wrap gap-2">
+                  <FilterChip
+                    label={ALL_CATEGORIES}
+                    count={posts.length}
+                    active={category === ALL_CATEGORIES}
+                    onClick={() => setCategory(ALL_CATEGORIES)}
+                  />
+                  {categoryCounts.map(([name, count]) => (
+                    <FilterChip
+                      key={name}
+                      label={name}
+                      count={count}
+                      color={getCategoryColor(name)}
+                      active={category === name}
+                      onClick={() => setCategory(name)}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Date order */}
+              <div className="shrink-0">
+                <h2 className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Date</h2>
+                <div className="flex gap-2">
+                  <SortButton
+                    label="Newest first"
+                    icon={<ArrowDownWideNarrow className="h-3.5 w-3.5" />}
+                    active={order === 'newest'}
+                    onClick={() => setOrder('newest')}
+                  />
+                  <SortButton
+                    label="Oldest first"
+                    icon={<ArrowUpNarrowWide className="h-3.5 w-3.5" />}
+                    active={order === 'oldest'}
+                    onClick={() => setOrder('oldest')}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <p className="mt-3 text-xs text-muted-foreground">
+              Showing {visiblePosts.length} of {posts.length} {posts.length === 1 ? 'post' : 'posts'}
+              {category !== ALL_CATEGORIES && ` in ${category}`}
+            </p>
+          </motion.div>
+        </div>
+      )}
+
       {/* Posts Grid */}
       <section className="container mx-auto px-4 md:px-6 pb-16 md:pb-24">
         {!hydrated && (
@@ -84,8 +185,25 @@ export default function BlogPage() {
           </div>
         )}
 
+        {hydrated && posts.length > 0 && visiblePosts.length === 0 && (
+          <div className="rounded-xl border border-dashed border-border p-10 text-center md:rounded-2xl">
+            <h2 className="mb-2 text-lg font-semibold text-foreground md:text-xl">Nothing in {category}</h2>
+            <p className="mx-auto mb-6 max-w-md text-sm text-muted-foreground">
+              No posts match this filter right now.
+            </p>
+            <button
+              type="button"
+              onClick={() => setCategory(ALL_CATEGORIES)}
+              className="inline-flex items-center gap-2 rounded-full bg-[#FF4D8E] px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-[#FF4D8E]/25 transition-colors hover:bg-[#FF4D8E]/90"
+            >
+              <ListFilter className="h-4 w-4" />
+              Show all posts
+            </button>
+          </div>
+        )}
+
         <div className="grid gap-4 md:gap-6 md:grid-cols-2 lg:grid-cols-3">
-          {posts.map((post, index) => (
+          {visiblePosts.map((post, index) => (
             <motion.article
               key={post.slug}
               initial={{ opacity: 0, y: 20 }}
@@ -148,5 +266,69 @@ export default function BlogPage() {
         </div>
       </section>
     </main>
+  );
+}
+
+function FilterChip({
+  label,
+  count,
+  color,
+  active,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  /** The category's own colour; omitted for the "All" chip. */
+  color?: string;
+  active: boolean;
+  onClick: () => void;
+}) {
+  const accent = color ?? '#FF4D8E';
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className="inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-sm transition-colors"
+      style={{
+        borderColor: active ? accent : 'rgba(127,127,127,0.3)',
+        backgroundColor: active ? `${accent}1f` : 'transparent',
+        color: active ? accent : undefined,
+      }}
+    >
+      {color && <span aria-hidden className="size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />}
+      {label}
+      <span className="text-xs text-muted-foreground">{count}</span>
+    </button>
+  );
+}
+
+function SortButton({
+  label,
+  icon,
+  active,
+  onClick,
+}: {
+  label: string;
+  icon: React.ReactNode;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className="inline-flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm whitespace-nowrap transition-colors"
+      style={{
+        borderColor: active ? '#FF4D8E' : 'rgba(127,127,127,0.3)',
+        backgroundColor: active ? 'rgba(255,77,142,0.12)' : 'transparent',
+        color: active ? '#FF4D8E' : undefined,
+      }}
+    >
+      {icon}
+      {label}
+    </button>
   );
 }
