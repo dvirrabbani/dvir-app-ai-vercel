@@ -1,4 +1,4 @@
-import { BlogPost, getDefaultPosts } from '@/lib/blog';
+import { BlogPost, CoverPosition, getDefaultPosts } from '@/lib/blog';
 
 /**
  * Every post the blog renders. They live in localStorage only — nothing is sent
@@ -400,6 +400,8 @@ export interface PostDraft {
   contentHtml: string;
   /** Explicit direction the author picked, or null for automatic. */
   direction?: 'ltr' | 'rtl' | null;
+  coverImage?: string;
+  coverPosition?: CoverPosition;
   savedAt: string;
 }
 

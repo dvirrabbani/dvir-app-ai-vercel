@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useCallback } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Play, Pause, Square, Volume2, VolumeX, SkipBack, Settings, X } from 'lucide-react';
 import { BlogPost } from '@/lib/blog';
+import { CoverImage } from '@/components/blog/cover-image';
 import { getCategoryColor } from '@/lib/local-posts';
 
 // Note: Blog content HTML comes either from our own hardcoded lib/blog.ts file
@@ -238,6 +239,15 @@ export function ArticleContent({ post }: ArticleContentProps) {
 
           {/* Article Header */}
           <header className="mb-8 md:mb-12">
+            {/* Same choice the card follows, so the two do not disagree. */}
+            {post.coverPosition !== 'below-excerpt' && (
+              <CoverImage
+                src={post.coverImage}
+                alt=""
+                className="mb-6 max-h-96 w-full rounded-xl object-cover md:mb-8 md:rounded-2xl"
+              />
+            )}
+
             {/* Metadata stays left-to-right even on an RTL post: the category,
                 reading time and date are written in English either way. */}
             <div dir="ltr" className="flex flex-wrap items-center gap-2 md:gap-3 mb-4 md:mb-6">
@@ -263,6 +273,14 @@ export function ArticleContent({ post }: ArticleContentProps) {
             <p className="text-base md:text-xl text-muted-foreground mb-6 md:mb-8 leading-relaxed">
               {post.excerpt}
             </p>
+
+            {post.coverPosition === 'below-excerpt' && (
+              <CoverImage
+                src={post.coverImage}
+                alt=""
+                className="mb-6 max-h-96 w-full rounded-xl object-cover md:mb-8 md:rounded-2xl"
+              />
+            )}
 
             {/* Author + Listen Button - stack on small mobile */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 md:pb-8 border-b border-border">

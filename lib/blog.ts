@@ -1,3 +1,6 @@
+/** Where a post's cover image sits relative to the title and excerpt. */
+export type CoverPosition = 'above-title' | 'below-excerpt';
+
 export interface BlogPost {
   slug: string;
   title: string;
@@ -13,6 +16,10 @@ export interface BlogPost {
   };
   /** Optional: kept when a post is pasted in from local storage, else derived from `date`. */
   createdAt?: string;
+  /** Image shown above the title and on the card in the index. An http(s) URL. */
+  coverImage?: string;
+  /** Where the cover sits relative to the text. Defaults to above the title. */
+  coverPosition?: CoverPosition;
   /** Reading direction of the body. Detected from the text when a post is saved. */
   direction?: 'ltr' | 'rtl';
   /** BCP 47 tag ("he", "ar", "en"), used for the TTS voice and assistive tech. */
