@@ -400,6 +400,7 @@ export interface PostDraft {
   contentHtml: string;
   /** Explicit direction the author picked, or null for automatic. */
   direction?: 'ltr' | 'rtl' | null;
+  coverImage?: string;
   savedAt: string;
 }
 

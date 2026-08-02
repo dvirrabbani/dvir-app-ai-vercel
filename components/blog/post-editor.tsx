@@ -6,6 +6,7 @@ import { useSession } from 'next-auth/react';
 import { motion } from 'framer-motion';
 import { Save, Eye, PenLine, Trash2, Clock, X } from 'lucide-react';
 import { CategorySelect } from '@/components/blog/category-select';
+import { CoverImage } from '@/components/blog/cover-image';
 import { EditorDirection, RichTextEditor, RichTextEditorHandle } from '@/components/blog/rich-text-editor';
 import {
   LocalBlogPost,
@@ -18,6 +19,7 @@ import {
   estimateReadingTime,
   formatPostDate,
   htmlToPlainText,
+  isSafeImageSrc,
   sanitizeHtml,
   saveDraft,
   saveLocalPost,
@@ -28,6 +30,7 @@ interface FormErrors {
   title?: string;
   excerpt?: string;
   content?: string;
+  coverImage?: string;
 }
 
 const AUTOSAVE_INTERVAL_MS = 2000;
@@ -53,6 +56,7 @@ export function PostEditor({ post, draft }: PostEditorProps) {
   const [excerpt, setExcerpt] = useState(initial?.excerpt ?? '');
   const [category, setCategory] = useState(initial?.category || POST_CATEGORIES[0]);
   const [authorName, setAuthorName] = useState(post?.author.name ?? draft?.authorName ?? '');
+  const [coverImage, setCoverImage] = useState(post?.coverImage ?? draft?.coverImage ?? '');
 
   const [errors, setErrors] = useState<FormErrors>({});
   const [showPreview, setShowPreview] = useState(false);
@@ -81,7 +85,7 @@ export function PostEditor({ post, draft }: PostEditorProps) {
       const html = editorApi.current?.getHtml() ?? contentHtml;
       if (!title && !excerpt && !htmlToPlainText(html)) return;
 
-      saveDraft({ title, excerpt, category, authorName, contentHtml: html, direction });
+      saveDraft({ title, excerpt, category, authorName, contentHtml: html, direction, coverImage });
       if (draftStatusRef.current) {
         const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
         draftStatusRef.current.textContent = `Draft saved ${time}`;
@@ -89,7 +93,7 @@ export function PostEditor({ post, draft }: PostEditorProps) {
     }, AUTOSAVE_INTERVAL_MS);
 
     return () => clearInterval(timer);
-  }, [authorName, category, contentHtml, direction, excerpt, isEditing, title]);
+  }, [authorName, category, contentHtml, coverImage, direction, excerpt, isEditing, title]);
 
   const handleDiscard = useCallback(() => {
     if (isEditing) {
@@ -114,10 +118,14 @@ export function PostEditor({ post, draft }: PostEditorProps) {
     const cleanHtml = applyAutoDirection(sanitizeHtml(editorApi.current?.getHtml() ?? contentHtml));
     const plainText = htmlToPlainText(cleanHtml);
 
+    const cover = coverImage.trim();
+
     const nextErrors: FormErrors = {};
     if (!title.trim()) nextErrors.title = 'A title is required.';
     if (!excerpt.trim()) nextErrors.excerpt = 'A short excerpt is required.';
     if (!plainText.trim()) nextErrors.content = 'The post body cannot be empty.';
+    // Optional, but a bad address would render as a broken image on every card.
+    if (cover && !isSafeImageSrc(cover)) nextErrors.coverImage = 'Use a link starting with http:// or https://';
 
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
@@ -136,6 +144,7 @@ export function PostEditor({ post, draft }: PostEditorProps) {
       date: formatPostDate(now),
       readingTime: estimateReadingTime(plainText),
       author: { name: authorName.trim() || sessionName || 'Anonymous' },
+      coverImage: cover,
       createdAt: now.toISOString(),
       // The title matters as much as the body here: a Hebrew post usually has both.
       direction: direction ?? detectDirection(`${title} ${plainText}`),
@@ -145,7 +154,7 @@ export function PostEditor({ post, draft }: PostEditorProps) {
     saveLocalPost(saved);
     if (!isEditing) clearDraft();
     router.push(`/blog/${saved.slug}`);
-  }, [authorName, category, contentHtml, direction, excerpt, isEditing, post, router, sessionName, title]);
+  }, [authorName, category, contentHtml, coverImage, direction, excerpt, isEditing, post, router, sessionName, title]);
 
   const togglePreview = useCallback(() => {
     const live = editorApi.current?.getHtml();
@@ -172,6 +181,50 @@ export function PostEditor({ post, draft }: PostEditorProps) {
       )}
 
       <div className="space-y-5 pb-16 md:pb-24">
+        {/* Cover image */}
+        <div>
+          <label htmlFor="post-cover" className="mb-1.5 block text-sm font-medium text-foreground">
+            Cover image <span className="font-normal text-muted-foreground">(optional)</span>
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="post-cover"
+              value={coverImage}
+              onChange={(e) => {
+                setCoverImage(e.target.value);
+                if (errors.coverImage) setErrors((prev) => ({ ...prev, coverImage: undefined }));
+              }}
+              placeholder="https://example.com/photo.jpg"
+              className={fieldClass}
+            />
+            {coverImage.trim() && (
+              <button
+                type="button"
+                onClick={() => setCoverImage('')}
+                title="Remove cover image"
+                aria-label="Remove cover image"
+                className="shrink-0 rounded-full p-2.5 text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
+
+          {errors.coverImage ? (
+            <p className="mt-1.5 text-xs text-destructive">{errors.coverImage}</p>
+          ) : (
+            <p className="mt-1.5 text-xs text-muted-foreground">
+              Shown above the title and on the post&apos;s card in the blog list.
+            </p>
+          )}
+
+          <CoverImage
+            src={coverImage.trim()}
+            alt=""
+            className="mt-3 max-h-48 w-full rounded-xl object-cover"
+          />
+        </div>
+
         {/* Title */}
         <div>
           <label htmlFor="post-title" className="mb-1.5 block text-sm font-medium text-foreground">
@@ -247,6 +300,7 @@ export function PostEditor({ post, draft }: PostEditorProps) {
               dir={direction ?? 'auto'}
               className="rte-content min-h-[320px] rounded-xl border border-border bg-white/60 px-4 py-4 text-sm leading-relaxed text-foreground dark:bg-white/5 md:text-base md:leading-[1.8]"
             >
+              <CoverImage src={coverImage.trim()} alt="" className="mb-4 max-h-64 w-full rounded-lg object-cover" />
               {htmlToPlainText(previewHtml) ? (
                 // Sanitized against an allow-list immediately above.
                 <div dangerouslySetInnerHTML={{ __html: previewHtml }} />
