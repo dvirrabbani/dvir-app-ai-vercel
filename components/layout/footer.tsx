@@ -7,7 +7,7 @@ const footerLinks = [
   { href: '#about', label: 'About' },
   { href: '/calendar', label: 'Calendar' },
   { href: '#insights', label: 'AI & Dev' },
-  { href: '#contact', label: 'Contact' },
+  { href: '/contact', label: 'Contact' },
 ];
 
 // Point home until the real accounts exist — see the note in cta-section.tsx.

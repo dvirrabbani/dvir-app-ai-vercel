@@ -22,7 +22,7 @@ const navLinks = [
   { href: '/blog', label: 'Blog' },
   { href: '/poll', label: 'Poll' },
   { href: '/milestones', label: 'Milestones' },
-  { href: '/#contact', label: 'Contact' },
+  { href: '/contact', label: 'Contact' },
 ];
 
 function ThemeToggle() {
