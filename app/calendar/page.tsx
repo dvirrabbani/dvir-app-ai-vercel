@@ -104,10 +104,12 @@ export default function CalendarPage() {
           </div>
 
           {/* Weekday header */}
+          {/* Padding and the 20px box match the day number below, so each label
+              sits directly over the numbers in its column. */}
           <div dir="ltr" className="mb-1 grid grid-cols-7 gap-1">
             {WEEKDAY_LABELS.map((label) => (
-              <div key={label} className="py-1 text-center text-xs font-medium text-muted-foreground">
-                {label}
+              <div key={label} className="px-1.5 py-1 text-xs font-medium text-muted-foreground">
+                <span className="inline-flex w-5 justify-center">{label}</span>
               </div>
             ))}
           </div>
