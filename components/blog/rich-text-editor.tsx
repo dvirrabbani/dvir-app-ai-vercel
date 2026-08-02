@@ -22,6 +22,11 @@ import {
   PilcrowLeft,
   PilcrowRight,
   ImagePlus,
+  Table,
+  Rows3,
+  Columns3,
+  TableRowsSplit,
+  TableColumnsSplit,
   Check,
   X,
 } from 'lucide-react';
@@ -81,6 +86,7 @@ function ToolbarButton({
   title,
   children,
   active,
+  requiresTable,
 }: {
   onClick: () => void;
   /** Marks the button as stateful; `block:h2` style values track the block type. */
@@ -89,6 +95,8 @@ function ToolbarButton({
   children: React.ReactNode;
   /** For buttons driven by React state rather than by `refreshUi`. */
   active?: boolean;
+  /** Disabled unless the caret is inside a table. */
+  requiresTable?: boolean;
 }) {
   return (
     <button
@@ -97,6 +105,10 @@ function ToolbarButton({
       aria-label={title}
       aria-pressed={active}
       data-command={command}
+      // `disabled` is driven imperatively by refreshUi. Setting it here as well
+      // would let React own the prop, and React suppresses onClick for a button
+      // it believes is disabled — even after the DOM property is flipped back.
+      data-requires-table={requiresTable ? '' : undefined}
       data-active={active === undefined ? undefined : String(active)}
       // Keep the caret in the editor: mousedown would otherwise blur it first.
       onMouseDown={(e) => e.preventDefault()}
@@ -131,9 +143,12 @@ export function RichTextEditor({
   const countRef = useRef<HTMLSpanElement>(null);
   const savedRangeRef = useRef<Range | null>(null);
 
-  // The only React state here: the URL bar, which is opened by a click, never by typing.
+  // The only React state here: the inline bars, opened by a click, never by typing.
   const [urlMode, setUrlMode] = useState<UrlMode>(null);
   const [urlValue, setUrlValue] = useState('');
+  const [tableOpen, setTableOpen] = useState(false);
+  const [tableRows, setTableRows] = useState(3);
+  const [tableColumns, setTableColumns] = useState(3);
 
   /* ---------------------------------------------------------------------- */
   /*  Imperative UI updates                                                  */
@@ -157,7 +172,24 @@ export function RichTextEditor({
 
     const toolbar = toolbarRef.current;
     const selection = window.getSelection();
-    const insideEditor = Boolean(selection?.anchorNode && editor.contains(selection.anchorNode));
+    const anchor = selection?.anchorNode ?? null;
+    const insideEditor = Boolean(anchor && editor.contains(anchor));
+
+    // Runs before the early return below, so these start out disabled on mount
+    // and switch off again as soon as the caret leaves the table.
+    if (toolbar) {
+      const anchorElement = insideEditor
+        ? anchor!.nodeType === Node.ELEMENT_NODE
+          ? (anchor as Element)
+          : anchor!.parentElement
+        : null;
+      const insideTable = Boolean(anchorElement?.closest('td, th'));
+
+      for (const button of Array.from(toolbar.querySelectorAll<HTMLButtonElement>('[data-requires-table]'))) {
+        button.disabled = !insideTable;
+      }
+    }
+
     if (!toolbar || !insideEditor) return;
 
     let block = 'p';
@@ -271,6 +303,110 @@ export function RichTextEditor({
     },
     [exec]
   );
+
+  /* ---------------------------------------------------------------------- */
+  /*  Tables                                                                 */
+  /* ---------------------------------------------------------------------- */
+
+  /** The cell the caret sits in, or null when the caret is outside a table. */
+  const currentCell = useCallback((): HTMLTableCellElement | null => {
+    const editor = editorRef.current;
+    const node = window.getSelection()?.anchorNode;
+    if (!editor || !node || !editor.contains(node)) return null;
+
+    const element = node.nodeType === Node.ELEMENT_NODE ? (node as Element) : node.parentElement;
+    return (element?.closest('td, th') as HTMLTableCellElement | null) ?? null;
+  }, []);
+
+  const insertTable = useCallback(
+    (rows: number, columns: number) => {
+      const safeRows = Math.min(Math.max(Math.trunc(rows) || 0, 1), 20);
+      const safeColumns = Math.min(Math.max(Math.trunc(columns) || 0, 1), 10);
+
+      const headerCells = Array.from({ length: safeColumns }, () => '<th><br></th>').join('');
+      const bodyRow = `<tr>${Array.from({ length: safeColumns }, () => '<td><br></td>').join('')}</tr>`;
+      // The first row is the header, so the remaining rows are the body.
+      const bodyRows = Array.from({ length: safeRows - 1 }, () => bodyRow).join('');
+
+      exec(
+        'insertHTML',
+        `<table><thead><tr>${headerCells}</tr></thead><tbody>${bodyRows}</tbody></table><p><br></p>`
+      );
+    },
+    [exec]
+  );
+
+  // Row and column edits change the DOM directly: there is no execCommand for
+  // them, which also means the browser's undo stack does not cover these.
+  const addRow = useCallback(() => {
+    const cell = currentCell();
+    const row = cell?.parentElement as HTMLTableRowElement | null;
+    if (!cell || !row) return;
+
+    const columns = row.children.length;
+    const fresh = document.createElement('tr');
+    for (let index = 0; index < columns; index++) {
+      fresh.appendChild(document.createElement('td')).appendChild(document.createElement('br'));
+    }
+
+    // A row added from the header belongs at the top of the body.
+    const table = row.closest('table');
+    const body = table?.querySelector('tbody');
+    if (row.parentElement?.tagName === 'THEAD' && body) body.prepend(fresh);
+    else row.after(fresh);
+
+    refreshUi();
+  }, [currentCell, refreshUi]);
+
+  const addColumn = useCallback(() => {
+    const cell = currentCell();
+    const table = cell?.closest('table');
+    if (!cell || !table) return;
+
+    const index = Array.from(cell.parentElement?.children ?? []).indexOf(cell);
+
+    for (const row of Array.from(table.rows)) {
+      const isHeaderRow = row.parentElement?.tagName === 'THEAD';
+      const fresh = document.createElement(isHeaderRow ? 'th' : 'td');
+      fresh.appendChild(document.createElement('br'));
+      const reference = row.children[index];
+      if (reference) reference.after(fresh);
+      else row.appendChild(fresh);
+    }
+
+    refreshUi();
+  }, [currentCell, refreshUi]);
+
+  const removeRow = useCallback(() => {
+    const cell = currentCell();
+    const row = cell?.parentElement as HTMLTableRowElement | null;
+    const table = row?.closest('table');
+    if (!row || !table) return;
+
+    // Removing the last row would leave an empty table behind.
+    if (table.rows.length <= 1) table.remove();
+    else row.remove();
+
+    editorRef.current?.focus();
+    refreshUi();
+  }, [currentCell, refreshUi]);
+
+  const removeColumn = useCallback(() => {
+    const cell = currentCell();
+    const table = cell?.closest('table');
+    if (!cell || !table) return;
+
+    const index = Array.from(cell.parentElement?.children ?? []).indexOf(cell);
+
+    if ((table.rows[0]?.children.length ?? 0) <= 1) {
+      table.remove();
+    } else {
+      for (const row of Array.from(table.rows)) row.children[index]?.remove();
+    }
+
+    editorRef.current?.focus();
+    refreshUi();
+  }, [currentCell, refreshUi]);
 
   const openUrlInput = useCallback((mode: UrlMode) => {
     const selection = window.getSelection();
@@ -412,6 +548,31 @@ export function RichTextEditor({
 
         <ToolbarDivider />
 
+        <ToolbarButton
+          title="Insert table"
+          active={tableOpen}
+          onClick={() => {
+            setUrlMode(null);
+            setTableOpen((prev) => !prev);
+          }}
+        >
+          <Table className="h-4 w-4" />
+        </ToolbarButton>
+        <ToolbarButton title="Add row below" requiresTable onClick={addRow}>
+          <Rows3 className="h-4 w-4" />
+        </ToolbarButton>
+        <ToolbarButton title="Add column after" requiresTable onClick={addColumn}>
+          <Columns3 className="h-4 w-4" />
+        </ToolbarButton>
+        <ToolbarButton title="Delete row" requiresTable onClick={removeRow}>
+          <TableRowsSplit className="h-4 w-4" />
+        </ToolbarButton>
+        <ToolbarButton title="Delete column" requiresTable onClick={removeColumn}>
+          <TableColumnsSplit className="h-4 w-4" />
+        </ToolbarButton>
+
+        <ToolbarDivider />
+
         <ToolbarButton title="Add link (Ctrl+K)" onClick={() => openUrlInput('link')}>
           <Link2 className="h-4 w-4" />
         </ToolbarButton>
@@ -483,6 +644,60 @@ export function RichTextEditor({
           >
             <X className="h-4 w-4" />
           </button>
+        </div>
+      )}
+
+      {/* Table size input */}
+      {tableOpen && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-border bg-[#FF4D8E]/5 px-2 py-2">
+          <Table className="h-4 w-4 shrink-0 text-[#FF4D8E]" />
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            Rows
+            <input
+              type="number"
+              min={1}
+              max={20}
+              value={tableRows}
+              onChange={(e) => setTableRows(Number(e.target.value))}
+              aria-label="Number of rows"
+              className="w-16 rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground outline-none focus:border-[#FF4D8E]/50"
+            />
+          </label>
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            Columns
+            <input
+              type="number"
+              min={1}
+              max={10}
+              value={tableColumns}
+              onChange={(e) => setTableColumns(Number(e.target.value))}
+              aria-label="Number of columns"
+              className="w-16 rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground outline-none focus:border-[#FF4D8E]/50"
+            />
+          </label>
+          <span className="ml-auto flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => {
+                insertTable(tableRows, tableColumns);
+                setTableOpen(false);
+              }}
+              title="Insert table"
+              className="inline-flex h-7 items-center gap-1.5 rounded-md bg-[#FF4D8E] px-3 text-xs font-medium text-white hover:bg-[#FF4D8E]/90"
+            >
+              <Check className="h-3.5 w-3.5" />
+              Insert
+            </button>
+            <button
+              type="button"
+              onClick={() => setTableOpen(false)}
+              title="Cancel"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </span>
+          <p className="w-full text-xs text-muted-foreground">The first row becomes the header.</p>
         </div>
       )}
 

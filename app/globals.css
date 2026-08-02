@@ -585,6 +585,55 @@ html, body {
   border-top: 1px solid var(--border);
 }
 
+/* Tables. `display: block` makes a wide table scroll on its own instead of
+   pushing the page sideways on a phone. */
+.rte-content table {
+  display: block;
+  width: max-content;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  margin: 1.5rem 0;
+  font-size: 0.9375em;
+}
+
+.rte-content th,
+.rte-content td {
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  padding: 0.5rem 0.75rem;
+  text-align: start;
+  vertical-align: top;
+  min-width: 5rem;
+}
+
+.dark .rte-content th,
+.dark .rte-content td {
+  border-color: rgba(255, 255, 255, 0.16);
+}
+
+.rte-content th {
+  background-color: rgba(255, 77, 142, 0.1);
+  font-weight: 600;
+}
+
+.rte-content tbody tr:nth-child(even) {
+  background-color: rgba(127, 127, 127, 0.05);
+}
+
+.rte-content caption {
+  caption-side: bottom;
+  padding-top: 0.5rem;
+  font-size: 0.875em;
+  color: var(--muted-foreground);
+}
+
+/* The cell being typed in, so the caret is easy to place */
+.rte-content [contenteditable] td:focus,
+.rte-content [contenteditable] th:focus {
+  outline: 2px solid rgba(255, 77, 142, 0.4);
+  outline-offset: -2px;
+}
+
 .rte-content img {
   display: block;
   max-width: 100%;

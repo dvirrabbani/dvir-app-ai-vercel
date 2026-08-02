@@ -54,6 +54,7 @@ const ALLOWED_TAGS = new Set([
   'H1', 'H2', 'H3', 'H4',
   'UL', 'OL', 'LI',
   'BLOCKQUOTE', 'CODE', 'PRE', 'A', 'IMG',
+  'TABLE', 'THEAD', 'TBODY', 'TFOOT', 'TR', 'TH', 'TD', 'CAPTION',
 ]);
 
 // Removed with their contents, rather than unwrapped.
@@ -62,7 +63,12 @@ const DROPPED_TAGS = new Set(['SCRIPT', 'STYLE', 'IFRAME', 'OBJECT', 'EMBED', 'L
 const ALLOWED_ATTRS: Record<string, string[]> = {
   A: ['href', 'target', 'rel'],
   IMG: ['src', 'alt', 'title'],
+  TD: ['colspan', 'rowspan'],
+  TH: ['colspan', 'rowspan', 'scope'],
 };
+
+const SPAN_ATTRS = ['colspan', 'rowspan'];
+const MAX_CELL_SPAN = 50;
 
 // Allowed on any element: needed for mixed Hebrew/English posts.
 const GLOBAL_ATTRS = ['dir'];
@@ -127,6 +133,18 @@ function cleanElement(el: Element) {
       child.removeAttribute('dir');
     }
 
+    // A cell span has to be a small positive integer; anything else is dropped
+    // rather than handed to the layout engine.
+    for (const attr of SPAN_ATTRS) {
+      const raw = child.getAttribute(attr);
+      if (raw === null) continue;
+
+      const span = Number(raw);
+      if (!Number.isInteger(span) || span < 1 || span > MAX_CELL_SPAN) {
+        child.removeAttribute(attr);
+      }
+    }
+
     // Turning paragraphs into a list leaves `<p><ul>…</ul></p>`, which the parser
     // splits into empty paragraphs on either side. Drop those, but keep <p><br></p>
     // since that is a deliberate blank line.
@@ -177,7 +195,7 @@ export function sanitizeHtml(html: string): string {
   return root.innerHTML;
 }
 
-const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'LI', 'BLOCKQUOTE', 'PRE']);
+const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'LI', 'BLOCKQUOTE', 'PRE', 'TH', 'TD', 'CAPTION']);
 
 /**
  * Marks each block with `dir="auto"` so the browser picks its direction from its
@@ -211,13 +229,18 @@ export function htmlToPlainText(html: string): string {
 
   const withBreaks = html
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|h1|h2|h3|h4|li|blockquote|pre|div)>/gi, '\n\n');
+    // Read a table row as one line of comma-separated cells.
+    .replace(/<\/(td|th)>/gi, ', ')
+    .replace(/<\/tr>/gi, '\n')
+    .replace(/<\/(p|h1|h2|h3|h4|li|blockquote|pre|div|caption)>/gi, '\n\n');
 
   const doc = new DOMParser().parseFromString(`<body>${withBreaks}</body>`, 'text/html');
 
   return (doc.body.textContent ?? '')
     .replace(/ /g, ' ')
     .replace(/[ \t]+/g, ' ')
+    // The last cell of a row leaves a dangling separator.
+    .replace(/,\s*(?=\n|$)/g, '')
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 }
