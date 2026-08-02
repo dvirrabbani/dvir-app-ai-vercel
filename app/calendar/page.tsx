@@ -80,18 +80,13 @@ export default function CalendarPage() {
 
         {/* Month */}
         <section className={`${cardClass} mb-6`}>
-          <div className="mb-4 flex items-center justify-between gap-3">
+          {/* Month name and its controls sit together on the left, lined up with
+              the grid below rather than split across the width of the card. */}
+          <div className="mb-4 flex flex-wrap items-center gap-2">
             <h2 className="text-lg font-semibold text-foreground md:text-xl">
               {formatMonthTitle(cursor.year, cursor.month)}
             </h2>
             <div className="flex items-center gap-1">
-              <button
-                type="button"
-                onClick={goToToday}
-                className="mr-1 rounded-full border border-gray-200 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-[#FF4D8E]/40 dark:border-white/10"
-              >
-                Today
-              </button>
               <IconButton title="Previous month" onClick={() => goToMonth(-1)}>
                 <ChevronLeft className="h-4 w-4" />
               </IconButton>
@@ -99,6 +94,13 @@ export default function CalendarPage() {
                 <ChevronRight className="h-4 w-4" />
               </IconButton>
             </div>
+            <button
+              type="button"
+              onClick={goToToday}
+              className="rounded-full border border-gray-200 px-3 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-[#FF4D8E]/40 dark:border-white/10"
+            >
+              Today
+            </button>
           </div>
 
           {/* Weekday header */}
