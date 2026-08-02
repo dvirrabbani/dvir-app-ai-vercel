@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation';
 import { useSession } from 'next-auth/react';
 import { motion } from 'framer-motion';
 import { Save, Eye, PenLine, Trash2, Clock, X } from 'lucide-react';
+import { CoverPosition } from '@/lib/blog';
 import { CategorySelect } from '@/components/blog/category-select';
 import { CoverImage } from '@/components/blog/cover-image';
 import { EditorDirection, RichTextEditor, RichTextEditorHandle } from '@/components/blog/rich-text-editor';
@@ -57,6 +58,9 @@ export function PostEditor({ post, draft }: PostEditorProps) {
   const [category, setCategory] = useState(initial?.category || POST_CATEGORIES[0]);
   const [authorName, setAuthorName] = useState(post?.author.name ?? draft?.authorName ?? '');
   const [coverImage, setCoverImage] = useState(post?.coverImage ?? draft?.coverImage ?? '');
+  const [coverPosition, setCoverPosition] = useState<CoverPosition>(
+    post?.coverPosition ?? draft?.coverPosition ?? 'above-title'
+  );
 
   const [errors, setErrors] = useState<FormErrors>({});
   const [showPreview, setShowPreview] = useState(false);
@@ -85,7 +89,7 @@ export function PostEditor({ post, draft }: PostEditorProps) {
       const html = editorApi.current?.getHtml() ?? contentHtml;
       if (!title && !excerpt && !htmlToPlainText(html)) return;
 
-      saveDraft({ title, excerpt, category, authorName, contentHtml: html, direction, coverImage });
+      saveDraft({ title, excerpt, category, authorName, contentHtml: html, direction, coverImage, coverPosition });
       if (draftStatusRef.current) {
         const time = new Date().toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
         draftStatusRef.current.textContent = `Draft saved ${time}`;
@@ -93,7 +97,7 @@ export function PostEditor({ post, draft }: PostEditorProps) {
     }, AUTOSAVE_INTERVAL_MS);
 
     return () => clearInterval(timer);
-  }, [authorName, category, contentHtml, coverImage, direction, excerpt, isEditing, title]);
+  }, [authorName, category, contentHtml, coverImage, coverPosition, direction, excerpt, isEditing, title]);
 
   const handleDiscard = useCallback(() => {
     if (isEditing) {
@@ -145,6 +149,7 @@ export function PostEditor({ post, draft }: PostEditorProps) {
       readingTime: estimateReadingTime(plainText),
       author: { name: authorName.trim() || sessionName || 'Anonymous' },
       coverImage: cover,
+      coverPosition,
       createdAt: now.toISOString(),
       // The title matters as much as the body here: a Hebrew post usually has both.
       direction: direction ?? detectDirection(`${title} ${plainText}`),
@@ -154,7 +159,20 @@ export function PostEditor({ post, draft }: PostEditorProps) {
     saveLocalPost(saved);
     if (!isEditing) clearDraft();
     router.push(`/blog/${saved.slug}`);
-  }, [authorName, category, contentHtml, coverImage, direction, excerpt, isEditing, post, router, sessionName, title]);
+  }, [
+    authorName,
+    category,
+    contentHtml,
+    coverImage,
+    coverPosition,
+    direction,
+    excerpt,
+    isEditing,
+    post,
+    router,
+    sessionName,
+    title,
+  ]);
 
   const togglePreview = useCallback(() => {
     const live = editorApi.current?.getHtml();
@@ -214,8 +232,26 @@ export function PostEditor({ post, draft }: PostEditorProps) {
             <p className="mt-1.5 text-xs text-destructive">{errors.coverImage}</p>
           ) : (
             <p className="mt-1.5 text-xs text-muted-foreground">
-              Shown above the title and on the post&apos;s card in the blog list.
+              Shown on the post&apos;s card in the blog list and on the post itself.
             </p>
+          )}
+
+          {coverImage.trim() && (
+            <div className="mt-3">
+              <span className="mb-1.5 block text-xs font-medium text-foreground">Where it goes</span>
+              <div className="flex flex-wrap gap-2">
+                <PositionChip
+                  label="Above the title"
+                  active={coverPosition === 'above-title'}
+                  onClick={() => setCoverPosition('above-title')}
+                />
+                <PositionChip
+                  label="Beneath the excerpt"
+                  active={coverPosition === 'below-excerpt'}
+                  onClick={() => setCoverPosition('below-excerpt')}
+                />
+              </div>
+            </div>
           )}
 
           <CoverImage
@@ -346,6 +382,24 @@ export function PostEditor({ post, draft }: PostEditorProps) {
         </div>
       </div>
     </motion.div>
+  );
+}
+
+function PositionChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className="rounded-full border px-3.5 py-1.5 text-xs transition-colors"
+      style={{
+        borderColor: active ? '#FF4D8E' : 'rgba(127,127,127,0.3)',
+        backgroundColor: active ? 'rgba(255,77,142,0.12)' : 'transparent',
+        color: active ? '#FF4D8E' : undefined,
+      }}
+    >
+      {label}
+    </button>
   );
 }
 

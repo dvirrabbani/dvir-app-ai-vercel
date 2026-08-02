@@ -227,11 +227,13 @@ export default function BlogPage() {
             >
               <Link href={`/blog/${post.slug}`} className="block group">
                 <div dir={post.direction ?? 'auto'} lang={post.lang} className="h-full rounded-xl md:rounded-2xl bg-white/60 dark:bg-white/5 backdrop-blur-md border border-white/30 dark:border-white/10 shadow-[0_8px_32px_rgba(0,0,0,0.06)] dark:shadow-[0_8px_32px_rgba(0,0,0,0.2)] p-4 md:p-6 transition-all duration-300 hover:scale-[1.02] hover:shadow-[0_12px_40px_rgba(0,0,0,0.1)] dark:hover:shadow-[0_12px_40px_rgba(0,0,0,0.3)]">
-                  <CoverImage
-                    src={post.coverImage}
-                    alt=""
-                    className="mb-3 aspect-video w-full rounded-lg object-cover md:mb-4 md:rounded-xl"
-                  />
+                  {post.coverPosition !== 'below-excerpt' && (
+                    <CoverImage
+                      src={post.coverImage}
+                      alt=""
+                      className="mb-3 aspect-video w-full rounded-lg object-cover md:mb-4 md:rounded-xl"
+                    />
+                  )}
 
                   {/* Category & Reading Time — kept left-to-right on RTL posts,
                       so the clock icon and label keep their usual order. */}
@@ -257,6 +259,14 @@ export default function BlogPage() {
                   <p className="text-sm text-muted-foreground mb-3 md:mb-4 line-clamp-2">
                     {post.excerpt}
                   </p>
+
+                  {post.coverPosition === 'below-excerpt' && (
+                    <CoverImage
+                      src={post.coverImage}
+                      alt=""
+                      className="mb-3 aspect-video w-full rounded-lg object-cover md:mb-4 md:rounded-xl"
+                    />
+                  )}
 
                   {/* Footer */}
                   <div className="flex items-center justify-between pt-3 md:pt-4 border-t border-white/10 dark:border-white/5">
