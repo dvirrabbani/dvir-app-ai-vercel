@@ -13,19 +13,14 @@ import {
   deleteEvent,
   formatDayTitle,
   formatMonthTitle,
+  fromDateKey,
   monthGrid,
   toDateKey,
   updateEvent,
 } from '@/lib/calendar';
 import { useCalendar } from '@/lib/use-calendar';
-
-const fieldClass =
-  'w-full rounded-xl border border-gray-200 bg-white/60 px-4 py-2.5 text-sm text-[#1C1C1E] outline-none transition-colors placeholder:text-gray-500 focus:border-[#FF4D8E]/50 focus:ring-2 focus:ring-[#FF4D8E]/20 dark:border-white/10 dark:bg-white/5 dark:text-white dark:placeholder:text-gray-400';
-
-const cardClass =
-  'rounded-2xl border border-white/30 bg-white/60 p-5 backdrop-blur-md dark:border-white/10 dark:bg-white/5 md:p-6';
-
-const ACCENT = '#FF4D8E';
+import { RoutinesSection } from '@/components/calendar/routines-section';
+import { ACCENT, IconButton, cardClass, fieldClass } from '@/components/calendar/shared';
 
 /**
  * Events are indigo rather than the pink accent: pink text on a pink tint came
@@ -60,6 +55,16 @@ export default function CalendarPage() {
     const now = new Date();
     setCursor({ year: now.getFullYear(), month: now.getMonth() });
     setSelected(toDateKey(now));
+  }, []);
+
+  /**
+   * Picking a day from a routine calendar brings the month above along with it,
+   * so the page never shows August at the top while September is selected.
+   */
+  const selectDay = useCallback((key: string) => {
+    setSelected(key);
+    const date = fromDateKey(key);
+    setCursor({ year: date.getFullYear(), month: date.getMonth() });
   }, []);
 
   const selectedEvents = byDate.get(selected) ?? [];
@@ -203,6 +208,8 @@ export default function CalendarPage() {
             </ul>
           )}
         </section>
+
+        <RoutinesSection selected={selected} onSelect={selectDay} />
       </div>
     </main>
   );
@@ -393,33 +400,5 @@ function EventRow({ event }: { event: CalendarEvent }) {
         </IconButton>
       </span>
     </li>
-  );
-}
-
-function IconButton({
-  title,
-  onClick,
-  children,
-  destructive,
-}: {
-  title: string;
-  onClick: () => void;
-  children: React.ReactNode;
-  destructive?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
-      onClick={onClick}
-      className={`rounded-full p-2 text-muted-foreground transition-colors ${
-        destructive
-          ? 'hover:bg-destructive/10 hover:text-destructive'
-          : 'hover:bg-black/5 hover:text-foreground dark:hover:bg-white/10'
-      }`}
-    >
-      {children}
-    </button>
   );
 }
