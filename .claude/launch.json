@@ -7,6 +7,13 @@
       "port": 3000
     },
     {
+      "name": "dev-start",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000,
+      "autoPort": false
+    },
+    {
       "name": "prod",
       "runtimeExecutable": "npx",
       "runtimeArgs": ["next", "start", "-p", "3100"],
