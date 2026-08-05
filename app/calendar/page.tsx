@@ -27,6 +27,15 @@ const cardClass =
 
 const ACCENT = '#FF4D8E';
 
+/**
+ * Events are indigo rather than the pink accent: pink text on a pink tint came
+ * out at 2.3:1, and these labels are 10px. A deep indigo on light and a pale one
+ * on dark both clear the 4.5:1 minimum comfortably.
+ */
+const EVENT_CHIP_CLASS =
+  'bg-[rgba(99,102,241,0.14)] text-[#312E81] dark:bg-[rgba(129,140,248,0.2)] dark:text-[#C7D2FE]';
+const EVENT_TIME_CLASS = 'text-[#4338CA] dark:text-[#A5B4FC]';
+
 export default function CalendarPage() {
   const { byDate, hydrated } = useCalendar();
 
@@ -153,8 +162,7 @@ export default function CalendarPage() {
                       <span
                         key={event.id}
                         dir="auto"
-                        className="truncate rounded px-1 py-0.5 text-[10px] leading-tight md:text-xs"
-                        style={{ backgroundColor: `${ACCENT}1f`, color: ACCENT }}
+                        className={`truncate rounded px-1 py-0.5 text-[10px] leading-tight md:text-xs ${EVENT_CHIP_CLASS}`}
                       >
                         {event.time && <span className="tabular-nums">{event.time} </span>}
                         {event.title}
@@ -358,7 +366,7 @@ function EventRow({ event }: { event: CalendarEvent }) {
       <div className="min-w-0">
         <p className="flex items-center gap-2">
           {event.time ? (
-            <span className="inline-flex items-center gap-1 text-xs tabular-nums text-[#FF4D8E]">
+            <span className={`inline-flex items-center gap-1 text-xs tabular-nums ${EVENT_TIME_CLASS}`}>
               <Clock className="h-3 w-3" />
               {event.time}
             </span>
