@@ -7,15 +7,24 @@ import { ArrowLeft, Plus, Minus, Trash2, Pencil, Check, Flag, Target } from 'luc
 import {
   DESCRIPTION_MAX_LENGTH,
   MAX_TARGET,
+  MAX_TASKS_PER_MILESTONE,
   Milestone,
+  MilestoneTask,
+  TASK_TITLE_MAX_LENGTH,
   TITLE_MAX_LENGTH,
   UNIT_MAX_LENGTH,
   addMilestone,
+  addMilestoneTask,
   deleteMilestone,
+  deleteMilestoneTask,
   isComplete,
   milestonePercent,
+  milestoneProgress,
+  renameMilestoneTask,
+  setAllMilestoneTasks,
   setProgress,
   stepProgress,
+  toggleMilestoneTask,
   updateMilestone,
 } from '@/lib/milestones';
 import { useMilestones } from '@/lib/use-milestones';
@@ -171,11 +180,11 @@ function NewMilestoneForm() {
           value={description}
           onChange={(e) => setDescription(e.target.value)}
           dir="auto"
-          rows={2}
+          rows={5}
           maxLength={DESCRIPTION_MAX_LENGTH}
-          placeholder="A line of detail (optional)"
-          aria-label="Milestone description"
-          className={`${fieldClass} resize-y`}
+          placeholder="Notes, as long as you like — line breaks are kept (optional)"
+          aria-label="Milestone notes"
+          className={`${fieldClass} block w-full resize-y`}
         />
 
         <div className="flex flex-wrap items-end gap-3">
@@ -235,6 +244,7 @@ function MilestoneCard({ milestone, index }: { milestone: Milestone; index: numb
   const percent = milestonePercent(milestone);
   const done = isComplete(milestone);
   const color = done ? DONE_COLOR : PROGRESS_COLOR;
+  const progress = milestoneProgress(milestone);
 
   const startEditing = useCallback(() => {
     setDraftTitle(milestone.title);
@@ -281,10 +291,10 @@ function MilestoneCard({ milestone, index }: { milestone: Milestone; index: numb
             value={draftDescription}
             onChange={(e) => setDraftDescription(e.target.value)}
             dir="auto"
-            rows={2}
+            rows={5}
             maxLength={DESCRIPTION_MAX_LENGTH}
-            aria-label={`Description for ${milestone.title}`}
-            className={`${fieldClass} resize-y`}
+            aria-label={`Notes for ${milestone.title}`}
+            className={`${fieldClass} block w-full resize-y`}
           />
           <div className="flex flex-wrap items-end gap-3">
             <label className="text-xs text-muted-foreground">
@@ -332,7 +342,11 @@ function MilestoneCard({ milestone, index }: { milestone: Milestone; index: numb
       ) : (
         <>
           <div className="mb-3 flex items-start justify-between gap-3">
-            <div className="min-w-0">
+            {/* `flex-1` so the block fills the row rather than shrinking to its
+                own text. Without it a Hebrew title is right-aligned inside a box
+                only as wide as the words, which lands it on the left of the card
+                anyway. */}
+            <div className="min-w-0 flex-1">
               <h3 dir="auto" className="text-base font-semibold text-foreground md:text-lg">
                 {milestone.title}
                 {done && (
@@ -345,7 +359,9 @@ function MilestoneCard({ milestone, index }: { milestone: Milestone; index: numb
                 )}
               </h3>
               {milestone.description && (
-                <p dir="auto" className="mt-1 text-sm text-muted-foreground">
+                // `whitespace-pre-line` keeps the line breaks the author typed;
+                // without it the whole thing collapses onto one line.
+                <p dir="auto" className="mt-1 whitespace-pre-line text-sm text-muted-foreground">
                   {milestone.description}
                 </p>
               )}
@@ -368,8 +384,8 @@ function MilestoneCard({ milestone, index }: { milestone: Milestone; index: numb
                 {percent}%
               </span>
               <span dir="auto" className="text-muted-foreground">
-                {milestone.current} / {milestone.target}
-                {milestone.unit && ` ${milestone.unit}`}
+                {progress.current} / {progress.target}
+                {progress.byTasks ? (progress.target === 1 ? ' task' : ' tasks') : milestone.unit && ` ${milestone.unit}`}
               </span>
             </div>
             <div
@@ -390,37 +406,48 @@ function MilestoneCard({ milestone, index }: { milestone: Milestone; index: numb
             </div>
           </div>
 
+          <TaskList milestone={milestone} />
+
           {/* Controls */}
-          <div className="flex flex-wrap items-center gap-2">
-            <IconButton
-              title={`Decrease ${milestone.title}`}
-              onClick={() => stepProgress(milestone.id, -1)}
-              disabled={milestone.current <= 0}
-            >
-              <Minus className="h-4 w-4" />
-            </IconButton>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            {/* The counter only appears while the tasks are not the ones saying
+                how far along this is. */}
+            {!progress.byTasks && (
+              <>
+                <IconButton
+                  title={`Decrease ${milestone.title}`}
+                  onClick={() => stepProgress(milestone.id, -1)}
+                  disabled={milestone.current <= 0}
+                >
+                  <Minus className="h-4 w-4" />
+                </IconButton>
 
-            <input
-              type="number"
-              min={0}
-              max={milestone.target}
-              value={milestone.current}
-              onChange={(e) => setProgress(milestone.id, Number(e.target.value))}
-              aria-label={`Progress for ${milestone.title}`}
-              className={`${fieldClass} w-24 text-center`}
-            />
+                <input
+                  type="number"
+                  min={0}
+                  max={milestone.target}
+                  value={milestone.current}
+                  onChange={(e) => setProgress(milestone.id, Number(e.target.value))}
+                  aria-label={`Progress for ${milestone.title}`}
+                  className={`${fieldClass} w-24 text-center`}
+                />
 
-            <IconButton
-              title={`Increase ${milestone.title}`}
-              onClick={() => stepProgress(milestone.id, 1)}
-              disabled={done}
-            >
-              <Plus className="h-4 w-4" />
-            </IconButton>
+                <IconButton
+                  title={`Increase ${milestone.title}`}
+                  onClick={() => stepProgress(milestone.id, 1)}
+                  disabled={done}
+                >
+                  <Plus className="h-4 w-4" />
+                </IconButton>
+              </>
+            )}
 
             <button
               type="button"
-              onClick={() => setProgress(milestone.id, done ? 0 : milestone.target)}
+              onClick={() => {
+                if (progress.byTasks) setAllMilestoneTasks(milestone.id, !done);
+                else setProgress(milestone.id, done ? 0 : milestone.target);
+              }}
               className="ms-auto rounded-full border border-gray-200 px-4 py-1.5 text-xs font-medium text-foreground transition-colors hover:border-[#FF4D8E]/40 dark:border-white/10"
             >
               {done ? 'Reopen' : 'Mark complete'}
@@ -429,6 +456,151 @@ function MilestoneCard({ milestone, index }: { milestone: Milestone; index: numb
         </>
       )}
     </motion.article>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Tasks                                                                     */
+/* -------------------------------------------------------------------------- */
+
+function TaskRow({ milestone, task }: { milestone: Milestone; task: MilestoneTask }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(task.title);
+
+  const save = useCallback(() => {
+    if (renameMilestoneTask(milestone.id, task.id, draft)) setEditing(false);
+  }, [draft, milestone.id, task.id]);
+
+  if (editing) {
+    return (
+      <li className="flex items-center gap-2">
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              save();
+            }
+            if (e.key === 'Escape') setEditing(false);
+          }}
+          onBlur={save}
+          dir="auto"
+          autoFocus
+          maxLength={TASK_TITLE_MAX_LENGTH}
+          aria-label={`Rename ${task.title}`}
+          className={fieldClass}
+        />
+      </li>
+    );
+  }
+
+  return (
+    <li className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={() => toggleMilestoneTask(milestone.id, task.id)}
+        aria-pressed={task.done}
+        aria-label={`${task.done ? 'Untick' : 'Tick off'} ${task.title}`}
+        title={`${task.done ? 'Untick' : 'Tick off'} ${task.title}`}
+        className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md border transition-colors ${
+          task.done
+            ? 'border-transparent bg-[#047857] text-white hover:bg-[#036B4B]'
+            : 'border-gray-300 text-transparent hover:border-[#FF4D8E] dark:border-white/20'
+        }`}
+      >
+        <Check className="h-3.5 w-3.5" />
+      </button>
+
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        dir="auto"
+        title={`Edit ${task.title}`}
+        className={`min-w-0 flex-1 truncate text-start text-sm transition-colors hover:text-[#FF4D8E] ${
+          task.done ? 'text-muted-foreground line-through' : 'text-foreground'
+        }`}
+      >
+        {task.title}
+      </button>
+
+      <IconButton
+        title={`Remove ${task.title}`}
+        destructive
+        onClick={() => deleteMilestoneTask(milestone.id, task.id)}
+      >
+        <Trash2 className="h-4 w-4" />
+      </IconButton>
+    </li>
+  );
+}
+
+/**
+ * The pieces a milestone breaks into. While there are any, they are what the
+ * progress bar counts — the note under the field says so, since the counter
+ * above disappears when the first one is added.
+ */
+function TaskList({ milestone }: { milestone: Milestone }) {
+  const [title, setTitle] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const full = milestone.tasks.length >= MAX_TASKS_PER_MILESTONE;
+
+  const handleAdd = useCallback(() => {
+    if (!addMilestoneTask(milestone.id, title)) {
+      setError(full ? 'That is as many tasks as one milestone holds.' : 'Give the task a name first.');
+      return;
+    }
+    setTitle('');
+    setError(null);
+  }, [full, milestone.id, title]);
+
+  return (
+    <div className="mt-4 border-t border-black/[0.06] pt-3 dark:border-white/[0.08]">
+      {milestone.tasks.length > 0 && (
+        <ul className="mb-2 space-y-1.5">
+          {milestone.tasks.map((task) => (
+            <TaskRow key={task.id} milestone={milestone} task={task} />
+          ))}
+        </ul>
+      )}
+
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <input
+          value={title}
+          onChange={(e) => {
+            setTitle(e.target.value);
+            if (error) setError(null);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              handleAdd();
+            }
+          }}
+          dir="auto"
+          maxLength={TASK_TITLE_MAX_LENGTH}
+          placeholder="Break this into a task"
+          aria-label={`New task for ${milestone.title}`}
+          className={fieldClass}
+        />
+        <button
+          type="button"
+          onClick={handleAdd}
+          className="inline-flex shrink-0 items-center justify-center gap-2 rounded-full border border-gray-200 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-[#FF4D8E]/40 dark:border-white/10"
+        >
+          <Plus className="h-4 w-4" />
+          Task
+        </button>
+      </div>
+
+      {error && <p className="mt-1.5 text-xs text-destructive">{error}</p>}
+      {milestone.tasks.length === 0 && (
+        <p className="mt-1.5 text-xs text-muted-foreground">
+          Adding tasks hands the progress over to them, in place of the count above.
+        </p>
+      )}
+    </div>
   );
 }
 
