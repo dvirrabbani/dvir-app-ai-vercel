@@ -6,6 +6,7 @@ import { ArrowLeft, Play, Pause, Square, Volume2, VolumeX, SkipBack, Settings, X
 import { BlogPost } from '@/lib/blog';
 import { CoverImage } from '@/components/blog/cover-image';
 import { getCategoryColor } from '@/lib/local-posts';
+import { useLocalImages } from '@/lib/use-local-images';
 
 // Note: Blog content HTML comes either from our own hardcoded lib/blog.ts file
 // or from a locally saved post, which is sanitized against an allow-list before
@@ -36,6 +37,10 @@ export function ArticleContent({ post }: ArticleContentProps) {
   // Refs
   const articleRef = useRef<HTMLDivElement>(null);
   const utteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
+
+  // Screenshots pasted into the post are file names until they are read back out
+  // of the author's image folder.
+  useLocalImages(articleRef, post.contentHtml);
 
   // Check TTS support
   useEffect(() => {

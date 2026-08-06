@@ -54,7 +54,7 @@ const ALLOWED_TAGS = new Set([
   'H1', 'H2', 'H3', 'H4',
   'UL', 'OL', 'LI',
   'BLOCKQUOTE', 'CODE', 'PRE', 'A', 'IMG',
-  'TABLE', 'THEAD', 'TBODY', 'TFOOT', 'TR', 'TH', 'TD', 'CAPTION',
+  'TABLE', 'THEAD', 'TBODY', 'TFOOT', 'TR', 'TH', 'TD', 'CAPTION', 'COLGROUP', 'COL',
 ]);
 
 // Removed with their contents, rather than unwrapped.
@@ -65,10 +65,19 @@ const ALLOWED_ATTRS: Record<string, string[]> = {
   IMG: ['src', 'alt', 'title'],
   TD: ['colspan', 'rowspan'],
   TH: ['colspan', 'rowspan', 'scope'],
+  COL: ['width'],
 };
 
 const SPAN_ATTRS = ['colspan', 'rowspan'];
 const MAX_CELL_SPAN = 50;
+
+/**
+ * Bounds for a column width, in pixels. The floor matches the 5rem minimum the
+ * stylesheet already puts on every cell, so a stored width is never something
+ * the layout will quietly refuse to honour.
+ */
+export const MIN_COLUMN_WIDTH = 80;
+export const MAX_COLUMN_WIDTH = 1000;
 
 // Allowed on any element: needed for mixed Hebrew/English posts.
 const GLOBAL_ATTRS = ['dir'];
@@ -90,6 +99,49 @@ export function isSafeImageSrc(src: string): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * A screenshot pasted into a post is written to a folder the author picked on
+ * their own machine, and the post keeps only its file name behind this scheme.
+ * Nothing resolves it but this browser: the bytes never enter localStorage, so
+ * a few screenshots cannot fill the quota the posts themselves live in.
+ */
+export const LOCAL_IMAGE_PREFIX = 'local:';
+
+// A bare file name and nothing else: no slashes, no `..`, no query. Whatever is
+// stored has to be safe to hand straight to `getFileHandle`.
+const LOCAL_IMAGE_NAME = /^[a-z0-9][a-z0-9_-]{0,63}\.(png|jpe?g|gif|webp|avif)$/i;
+
+export function isLocalImageName(name: string): boolean {
+  return LOCAL_IMAGE_NAME.test(name);
+}
+
+export function localImageSrc(name: string): string {
+  return `${LOCAL_IMAGE_PREFIX}${name}`;
+}
+
+/** The file name behind a `local:` src, or null when it is anything else. */
+export function localImageName(src: string): string | null {
+  const trimmed = src.trim();
+  if (!trimmed.startsWith(LOCAL_IMAGE_PREFIX)) return null;
+
+  const name = trimmed.slice(LOCAL_IMAGE_PREFIX.length);
+  return isLocalImageName(name) ? name : null;
+}
+
+/** Every folder-backed image this HTML refers to, for working out what is still in use. */
+export function localImageNamesIn(html: string): Set<string> {
+  const names = new Set<string>();
+  if (typeof window === 'undefined' || !html) return names;
+
+  const doc = new DOMParser().parseFromString(`<body>${html}</body>`, 'text/html');
+  for (const image of Array.from(doc.querySelectorAll('img'))) {
+    const name = localImageName(image.getAttribute('src') ?? '');
+    if (name) names.add(name);
+  }
+
+  return names;
 }
 
 const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i;
@@ -145,6 +197,18 @@ function cleanElement(el: Element) {
       }
     }
 
+    // A column width is a bare pixel count inside the range the editor offers.
+    // Anything else — a percentage, a calc(), a negative — is dropped.
+    if (child.tagName === 'COL') {
+      const raw = child.getAttribute('width');
+      if (raw !== null) {
+        const width = Number(raw);
+        if (!Number.isInteger(width) || width < MIN_COLUMN_WIDTH || width > MAX_COLUMN_WIDTH) {
+          child.removeAttribute('width');
+        }
+      }
+    }
+
     // Turning paragraphs into a list leaves `<p><ul>…</ul></p>`, which the parser
     // splits into empty paragraphs on either side. Drop those, but keep <p><br></p>
     // since that is a deliberate blank line.
@@ -172,10 +236,14 @@ function cleanElement(el: Element) {
       }
     }
 
-    // An image whose source is not a plain http(s) URL is dropped outright.
-    if (child.tagName === 'IMG' && !isSafeImageSrc(child.getAttribute('src') ?? '')) {
-      child.remove();
-      continue;
+    // An image is dropped outright unless its source is a plain http(s) URL or a
+    // `local:` reference to a file in the author's own image folder.
+    if (child.tagName === 'IMG') {
+      const src = child.getAttribute('src') ?? '';
+      if (!isSafeImageSrc(src) && !localImageName(src)) {
+        child.remove();
+        continue;
+      }
     }
   }
 }
