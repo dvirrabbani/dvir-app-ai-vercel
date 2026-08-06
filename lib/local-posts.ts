@@ -263,12 +263,28 @@ export function sanitizeHtml(html: string): string {
   return root.innerHTML;
 }
 
-const BLOCK_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'LI', 'BLOCKQUOTE', 'PRE', 'TH', 'TD', 'CAPTION']);
+/**
+ * The list carries the direction, not its items.
+ *
+ * `dir="auto"` reads the first strong character of an element's *own* text, and
+ * skips anything inside a descendant that has a `dir` of its own. Marking every
+ * `<li>` therefore left the `<ul>` around them with no text to judge by, so it
+ * fell back to left-to-right — and a list's indent and its bullets follow the
+ * list box, not the words. A Hebrew list came out indented from the left with
+ * its markers stranded away from the text.
+ */
+const BLOCK_TAGS = new Set([
+  'P', 'H1', 'H2', 'H3', 'H4', 'UL', 'OL', 'BLOCKQUOTE', 'PRE', 'TH', 'TD', 'CAPTION',
+]);
 
 /**
  * Marks each block with `dir="auto"` so the browser picks its direction from its
  * own first strong character. That is what lets one post hold both a Hebrew
  * paragraph and an English one and have each align correctly.
+ *
+ * Safe to run more than once: it only ever adds what is missing, and clears the
+ * `dir="auto"` this function itself used to put on list items so older posts
+ * come right without being edited again.
  */
 export function applyAutoDirection(html: string): string {
   if (typeof window === 'undefined') return html;
@@ -277,11 +293,69 @@ export function applyAutoDirection(html: string): string {
   const root = doc.getElementById('rte-root');
   if (!root) return html;
 
+  // An item holding its own `dir="auto"` is what blinds the list above it. A
+  // direction the author set deliberately is left alone.
+  for (const item of Array.from(root.querySelectorAll('li[dir="auto"]'))) {
+    item.removeAttribute('dir');
+  }
+
   for (const block of Array.from(root.querySelectorAll('*'))) {
     // Leave an explicit direction alone — the author chose it.
     if (BLOCK_TAGS.has(block.tagName) && !block.hasAttribute('dir')) {
       block.setAttribute('dir', 'auto');
     }
+  }
+
+  return root.innerHTML;
+}
+
+/** The strip a table scrolls inside. Added for display only, never stored. */
+export const TABLE_SCROLL_CLASS = 'rte-table-scroll';
+
+/**
+ * Puts each table inside a scrolling strip.
+ *
+ * A table cannot be both the thing that clips and the thing that overflows, so
+ * on its own it has to choose: capped at the column of text, or free to be as
+ * wide as its columns ask for and pushing the page sideways. Wrapping gives it
+ * both — the strip is capped, the table inside it is not — which is what lets
+ * column widths adding up to more than the page survive rather than being
+ * squeezed to fit.
+ *
+ * The wrapper is a rendering detail. It never reaches storage: the sanitizer
+ * strips unknown classes and turns a bare `<div>` into a paragraph, so anything
+ * read back out of the editor goes through `unwrapTables` first.
+ */
+export function wrapTables(html: string): string {
+  if (typeof window === 'undefined' || !html || !html.includes('<table')) return html;
+
+  const doc = new DOMParser().parseFromString(`<body><div id="wrap-root">${html}</div></body>`, 'text/html');
+  const root = doc.getElementById('wrap-root');
+  if (!root) return html;
+
+  for (const table of Array.from(root.querySelectorAll('table'))) {
+    // Already wrapped, or nested somewhere a strip would not help.
+    if (table.parentElement?.classList.contains(TABLE_SCROLL_CLASS)) continue;
+
+    const strip = doc.createElement('div');
+    strip.className = TABLE_SCROLL_CLASS;
+    table.replaceWith(strip);
+    strip.appendChild(table);
+  }
+
+  return root.innerHTML;
+}
+
+/** Takes the strips back off, so what is saved is the table on its own. */
+export function unwrapTables(html: string): string {
+  if (typeof window === 'undefined' || !html || !html.includes(TABLE_SCROLL_CLASS)) return html;
+
+  const doc = new DOMParser().parseFromString(`<body><div id="unwrap-root">${html}</div></body>`, 'text/html');
+  const root = doc.getElementById('unwrap-root');
+  if (!root) return html;
+
+  for (const strip of Array.from(root.querySelectorAll(`div.${TABLE_SCROLL_CLASS}`))) {
+    strip.replaceWith(...Array.from(strip.childNodes));
   }
 
   return root.innerHTML;

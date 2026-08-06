@@ -27,6 +27,7 @@ import {
   saveDraft,
   saveLocalPost,
   uniqueSlug,
+  wrapTables,
 } from '@/lib/local-posts';
 
 interface FormErrors {
@@ -185,7 +186,9 @@ export function PostEditor({ post, draft }: PostEditorProps) {
     setShowPreview((prev) => !prev);
   }, []);
 
-  const previewHtml = showPreview ? prepareLocalImages(sanitizeHtml(contentHtml)) : '';
+  const previewHtml = showPreview
+    ? wrapTables(prepareLocalImages(applyAutoDirection(sanitizeHtml(contentHtml))))
+    : '';
 
   // The preview renders stored HTML, so its pasted images are references too.
   useLocalImages(previewRef);
