@@ -5,7 +5,7 @@ import Link from 'next/link';
 import { ArrowLeft, Play, Pause, Square, Volume2, VolumeX, SkipBack, Settings, X } from 'lucide-react';
 import { BlogPost } from '@/lib/blog';
 import { CoverImage } from '@/components/blog/cover-image';
-import { getCategoryColor } from '@/lib/local-posts';
+import { applyAutoDirection, getCategoryColor, wrapTables } from '@/lib/local-posts';
 import { prepareLocalImages, useLocalImages } from '@/lib/use-local-images';
 
 // Note: Blog content HTML comes either from our own hardcoded lib/blog.ts file
@@ -45,7 +45,12 @@ export function ArticleContent({ post }: ArticleContentProps) {
   // Memoised so React is handed the same string on a re-render and leaves the
   // container alone; recomputing it would re-apply the HTML and wipe the
   // resolved images.
-  const renderedHtml = useMemo(() => prepareLocalImages(post.contentHtml), [post.contentHtml]);
+  // `applyAutoDirection` runs here as well as on save, so a post written before
+  // lists carried their own direction reads correctly without being edited again.
+  const renderedHtml = useMemo(
+    () => wrapTables(prepareLocalImages(applyAutoDirection(post.contentHtml))),
+    [post.contentHtml]
+  );
 
   // Check TTS support
   useEffect(() => {

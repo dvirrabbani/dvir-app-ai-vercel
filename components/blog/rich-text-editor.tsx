@@ -38,8 +38,11 @@ import {
   MIN_COLUMN_WIDTH,
   countWords,
   isImageUrl,
+  TABLE_SCROLL_CLASS,
   isSafeImageSrc,
   sanitizeHtml,
+  unwrapTables,
+  wrapTables,
 } from '@/lib/local-posts';
 import {
   FolderStatus,
@@ -55,6 +58,13 @@ import {
 import { LOCAL_IMAGE_ATTR, prepareLocalImages, restoreLocalImages, useLocalImages } from '@/lib/use-local-images';
 
 const EMPTY_PARAGRAPH = '<p><br></p>';
+
+/** Takes the scrolling strip with it, rather than leaving an empty one behind. */
+function removeTable(table: HTMLTableElement) {
+  const strip = table.parentElement;
+  if (strip?.classList.contains(TABLE_SCROLL_CLASS) && strip.children.length === 1) strip.remove();
+  else table.remove();
+}
 
 export interface RichTextEditorHandle {
   /** Current HTML of the editable surface. */
@@ -270,7 +280,7 @@ export function RichTextEditor({
     const editor = editorRef.current;
     if (!editor) return;
 
-    editor.innerHTML = prepareLocalImages(initialHtml || '') || EMPTY_PARAGRAPH;
+    editor.innerHTML = wrapTables(prepareLocalImages(initialHtml || '')) || EMPTY_PARAGRAPH;
     refreshUi();
 
     try {
@@ -288,11 +298,11 @@ export function RichTextEditor({
     () => ({
       // Never the raw innerHTML: pasted images are showing blob URLs, and a blob
       // URL saved into a post would be dropped by the sanitizer as unreadable.
-      getHtml: () => (editorRef.current ? restoreLocalImages(editorRef.current) : ''),
+      getHtml: () => (editorRef.current ? unwrapTables(restoreLocalImages(editorRef.current)) : ''),
       setHtml: (html: string) => {
         const editor = editorRef.current;
         if (!editor) return;
-        editor.innerHTML = prepareLocalImages(html || '') || EMPTY_PARAGRAPH;
+        editor.innerHTML = wrapTables(prepareLocalImages(html || '')) || EMPTY_PARAGRAPH;
         refreshUi();
       },
       focus: () => editorRef.current?.focus(),
@@ -446,9 +456,13 @@ export function RichTextEditor({
       // The first row is the header, so the remaining rows are the body.
       const bodyRows = Array.from({ length: safeRows - 1 }, () => bodyRow).join('');
 
+      // Wrapped on the way in, so a wide one scrolls while it is being written
+      // rather than only once the post is saved. The strip comes off again when
+      // the editor is read back.
       exec(
         'insertHTML',
-        `<table><thead><tr>${headerCells}</tr></thead><tbody>${bodyRows}</tbody></table><p><br></p>`
+        `<div class="${TABLE_SCROLL_CLASS}"><table><thead><tr>${headerCells}</tr></thead>` +
+          `<tbody>${bodyRows}</tbody></table></div><p><br></p>`
       );
     },
     [exec]
@@ -512,7 +526,7 @@ export function RichTextEditor({
     if (!row || !table) return;
 
     // Removing the last row would leave an empty table behind.
-    if (table.rows.length <= 1) table.remove();
+    if (table.rows.length <= 1) removeTable(table);
     else row.remove();
 
     editorRef.current?.focus();
@@ -527,7 +541,7 @@ export function RichTextEditor({
     const index = Array.from(cell.parentElement?.children ?? []).indexOf(cell);
 
     if ((table.rows[0]?.children.length ?? 0) <= 1) {
-      table.remove();
+      removeTable(table);
     } else {
       for (const row of Array.from(table.rows)) row.children[index]?.remove();
 
@@ -666,6 +680,22 @@ export function RichTextEditor({
 
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
+      // Enter inside a list that lives in a table cell is done here rather than
+      // left to the browser, which is inclined to leave the cell and carry the
+      // next item into the row below instead of adding it to the list.
+      if (event.key === 'Enter' && !event.shiftKey && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        const node = window.getSelection()?.anchorNode;
+        const element = node?.nodeType === Node.ELEMENT_NODE ? (node as Element) : node?.parentElement;
+        const item = element?.closest('li');
+
+        if (item && item.closest('td, th')) {
+          event.preventDefault();
+          document.execCommand('insertParagraph');
+          refreshUi();
+          return;
+        }
+      }
+
       if (!event.metaKey && !event.ctrlKey) return;
 
       // Ctrl/Cmd+B/I/U are handled by the browser; add the block shortcuts.
@@ -680,7 +710,7 @@ export function RichTextEditor({
         openUrlInput('link');
       }
     },
-    [openUrlInput, toggleBlock]
+    [openUrlInput, refreshUi, toggleBlock]
   );
 
   return (
@@ -1067,7 +1097,7 @@ export function RichTextEditor({
           // `auto` follows the first strong character, so typing Hebrew flips it.
           dir={direction ?? 'auto'}
           onInput={refreshUi}
-          onBlur={() => onBlur?.(editorRef.current ? restoreLocalImages(editorRef.current) : '')}
+          onBlur={() => onBlur?.(editorRef.current ? unwrapTables(restoreLocalImages(editorRef.current)) : '')}
           onPaste={handlePaste}
           onKeyDown={handleKeyDown}
           onKeyUp={refreshUi}

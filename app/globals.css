@@ -585,8 +585,30 @@ html, body {
   border-top: 1px solid var(--border);
 }
 
-/* Tables. `display: block` makes a wide table scroll on its own instead of
-   pushing the page sideways on a phone. */
+/* Tables scroll inside a strip of their own rather than pushing the page
+   sideways on a phone.
+
+   The strip is the viewport and the table inside it is free to be wider, which
+   is the part one element cannot do alone: a table that is both capped at the
+   text column and its own scroller ends up capped, and column widths adding up
+   to more than the page get quietly squeezed to fit. */
+.rte-content .rte-table-scroll {
+  max-width: 100%;
+  overflow-x: auto;
+  margin: 1.5rem 0;
+  /* Reaching the end of the table should not start scrolling the page. */
+  overscroll-behavior-x: contain;
+}
+
+.rte-content .rte-table-scroll > table {
+  display: table;
+  width: max-content;
+  max-width: none;
+  margin: 0;
+}
+
+/* A table with no strip around it — older content, or any path that renders the
+   stored HTML directly — still scrolls itself, but cannot outgrow the column. */
 .rte-content table {
   display: block;
   width: max-content;
@@ -618,6 +640,33 @@ html, body {
 .rte-content table:has(colgroup) th,
 .rte-content table:has(colgroup) td {
   overflow-wrap: anywhere;
+}
+
+/* A list is often the whole of a cell. Its trailing margin would then stack on
+   top of the cell's own padding and leave the contents sitting high — 8px of
+   space above and 24px below. Blocks at the edge of a cell give up the margin
+   that faces the wall and let the padding do the spacing. */
+.rte-content td > :first-child,
+.rte-content th > :first-child {
+  margin-top: 0;
+}
+
+.rte-content td > :last-child,
+.rte-content th > :last-child {
+  margin-bottom: 0;
+}
+
+.rte-content td li:last-child,
+.rte-content th li:last-child {
+  margin-bottom: 0;
+}
+
+/* Columns are narrower than the page, so the markers sit closer in. */
+.rte-content td ul,
+.rte-content td ol,
+.rte-content th ul,
+.rte-content th ol {
+  padding-inline-start: 1.25rem;
 }
 
 .rte-content th {
