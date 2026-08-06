@@ -39,7 +39,6 @@ import {
   countWords,
   isImageUrl,
   isSafeImageSrc,
-  localImageSrc,
   sanitizeHtml,
 } from '@/lib/local-posts';
 import {
@@ -53,7 +52,7 @@ import {
   reconnectFolder,
   saveImage,
 } from '@/lib/image-folder';
-import { restoreLocalImages, useLocalImages } from '@/lib/use-local-images';
+import { LOCAL_IMAGE_ATTR, prepareLocalImages, restoreLocalImages, useLocalImages } from '@/lib/use-local-images';
 
 const EMPTY_PARAGRAPH = '<p><br></p>';
 
@@ -180,7 +179,7 @@ export function RichTextEditor({
   const [folderNotice, setFolderNotice] = useState<string | null>(null);
 
   // Pasted images are references until something reads them out of the folder.
-  useLocalImages(editorRef, folderState);
+  useLocalImages(editorRef);
 
   const refreshFolder = useCallback(async () => {
     setFolderState(await folderStatus());
@@ -271,7 +270,7 @@ export function RichTextEditor({
     const editor = editorRef.current;
     if (!editor) return;
 
-    editor.innerHTML = initialHtml || EMPTY_PARAGRAPH;
+    editor.innerHTML = prepareLocalImages(initialHtml || '') || EMPTY_PARAGRAPH;
     refreshUi();
 
     try {
@@ -293,7 +292,7 @@ export function RichTextEditor({
       setHtml: (html: string) => {
         const editor = editorRef.current;
         if (!editor) return;
-        editor.innerHTML = html || EMPTY_PARAGRAPH;
+        editor.innerHTML = prepareLocalImages(html || '') || EMPTY_PARAGRAPH;
         refreshUi();
       },
       focus: () => editorRef.current?.focus(),
@@ -601,7 +600,10 @@ export function RichTextEditor({
         return;
       }
 
-      document.execCommand('insertHTML', false, `<img src="${escapeHtml(localImageSrc(name))}" alt="">`);
+      // Inserted as a reference, not a `local:` src: the browser cannot fetch
+      // that scheme and would log a failed request for it. The hook fills in the
+      // real src, and `restoreLocalImages` turns it back into `local:` on save.
+      document.execCommand('insertHTML', false, `<img ${LOCAL_IMAGE_ATTR}="${escapeHtml(name)}" alt="">`);
       setFolderNotice(null);
       refreshUi();
     },

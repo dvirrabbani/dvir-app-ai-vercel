@@ -1,12 +1,12 @@
 'use client';
 
-import { useEffect, useState, useRef, useCallback } from 'react';
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import { ArrowLeft, Play, Pause, Square, Volume2, VolumeX, SkipBack, Settings, X } from 'lucide-react';
 import { BlogPost } from '@/lib/blog';
 import { CoverImage } from '@/components/blog/cover-image';
 import { getCategoryColor } from '@/lib/local-posts';
-import { useLocalImages } from '@/lib/use-local-images';
+import { prepareLocalImages, useLocalImages } from '@/lib/use-local-images';
 
 // Note: Blog content HTML comes either from our own hardcoded lib/blog.ts file
 // or from a locally saved post, which is sanitized against an allow-list before
@@ -40,7 +40,12 @@ export function ArticleContent({ post }: ArticleContentProps) {
 
   // Screenshots pasted into the post are file names until they are read back out
   // of the author's image folder.
-  useLocalImages(articleRef, post.contentHtml);
+  useLocalImages(articleRef);
+
+  // Memoised so React is handed the same string on a re-render and leaves the
+  // container alone; recomputing it would re-apply the HTML and wipe the
+  // resolved images.
+  const renderedHtml = useMemo(() => prepareLocalImages(post.contentHtml), [post.contentHtml]);
 
   // Check TTS support
   useEffect(() => {
@@ -411,7 +416,7 @@ export function ArticleContent({ post }: ArticleContentProps) {
               prose-li:text-sm
               md:prose-li:text-base
             "
-            dangerouslySetInnerHTML={{ __html: post.contentHtml }}
+            dangerouslySetInnerHTML={{ __html: renderedHtml }}
           />
 
           {/* Article Footer */}

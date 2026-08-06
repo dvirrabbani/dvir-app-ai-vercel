@@ -10,7 +10,7 @@ import { CategorySelect } from '@/components/blog/category-select';
 import { CoverImage } from '@/components/blog/cover-image';
 import { EditorDirection, RichTextEditor, RichTextEditorHandle } from '@/components/blog/rich-text-editor';
 import { discardUnusedImages } from '@/lib/image-folder';
-import { useLocalImages } from '@/lib/use-local-images';
+import { prepareLocalImages, useLocalImages } from '@/lib/use-local-images';
 import {
   LocalBlogPost,
   POST_CATEGORIES,
@@ -185,10 +185,10 @@ export function PostEditor({ post, draft }: PostEditorProps) {
     setShowPreview((prev) => !prev);
   }, []);
 
-  const previewHtml = showPreview ? sanitizeHtml(contentHtml) : '';
+  const previewHtml = showPreview ? prepareLocalImages(sanitizeHtml(contentHtml)) : '';
 
   // The preview renders stored HTML, so its pasted images are references too.
-  useLocalImages(previewRef, previewHtml);
+  useLocalImages(previewRef);
 
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
