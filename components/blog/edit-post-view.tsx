@@ -26,7 +26,7 @@ export function EditPostView({ slug: rawSlug }: { slug: string }) {
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-[#FFF5F8] via-background to-background dark:from-[#1C1C1E] dark:via-[#1C1C1E] dark:to-[#1C1C1E]">
-      <div className="container mx-auto max-w-3xl px-4 pt-24 md:px-6 md:pt-28">
+      <div className="container mx-auto max-w-6xl px-4 pt-24 md:px-6 md:pt-28">
         <Link
           href={hydrated && post ? `/blog/${post.slug}` : '/blog'}
           className="mb-6 inline-flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground md:mb-8"

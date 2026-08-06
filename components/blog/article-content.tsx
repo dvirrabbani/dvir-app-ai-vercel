@@ -236,7 +236,7 @@ export function ArticleContent({ post }: ArticleContentProps) {
         <article
           dir={post.direction ?? 'auto'}
           lang={post.lang}
-          className="container mx-auto px-4 md:px-6 max-w-3xl"
+          className="container mx-auto px-4 md:px-6 max-w-6xl"
         >
           {/* Back Link */}
           <Link
