@@ -229,7 +229,9 @@ export default function ContactPage() {
               {messages.map((item) => (
                 <li key={item.id} className={cardClass}>
                   <div className="mb-2 flex items-start justify-between gap-3">
-                    <div className="min-w-0">
+                    {/* Fills the row, so a Hebrew subject lands against the right
+                        edge rather than inside a box the width of its own words. */}
+                    <div className="min-w-0 flex-1">
                       {item.subject && (
                         <p dir="auto" className="text-sm font-semibold text-foreground">
                           {item.subject}

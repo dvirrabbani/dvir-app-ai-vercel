@@ -3,16 +3,28 @@
  * in localStorage only — this is one browser's copy, not shared with anyone.
  */
 
+export interface MilestoneTask {
+  id: string;
+  title: string;
+  done: boolean;
+}
+
 export interface Milestone {
   id: string;
   title: string;
+  /** Free text, kept as written — blank lines and all. */
   description: string;
-  /** How much is done, always between 0 and `target`. */
+  /** How much is done, always between 0 and `target`. Ignored once there are tasks. */
   current: number;
-  /** What counts as finished. At least 1. */
+  /** What counts as finished. At least 1. Ignored once there are tasks. */
   target: number;
   /** What is being counted: "chapters", "km", "%". Optional. */
   unit: string;
+  /**
+   * The pieces this milestone breaks into. While it holds any, they are what
+   * says how far along it is and the counter above is left alone.
+   */
+  tasks: MilestoneTask[];
   createdAt: string;
   updatedAt: string;
 }
@@ -23,9 +35,12 @@ export const MILESTONES_KEY = 'dvir-milestones:items';
 export const MILESTONES_EVENT = 'milestones-changed';
 
 export const TITLE_MAX_LENGTH = 80;
-export const DESCRIPTION_MAX_LENGTH = 240;
+/** Long enough to hold a few paragraphs rather than a single line of detail. */
+export const DESCRIPTION_MAX_LENGTH = 2_000;
 export const UNIT_MAX_LENGTH = 16;
 export const MAX_TARGET = 1_000_000;
+export const TASK_TITLE_MAX_LENGTH = 120;
+export const MAX_TASKS_PER_MILESTONE = 100;
 
 function isMilestone(value: unknown): value is Milestone {
   if (typeof value !== 'object' || value === null) return false;
@@ -36,6 +51,31 @@ function isMilestone(value: unknown): value is Milestone {
     typeof item.current === 'number' &&
     typeof item.target === 'number'
   );
+}
+
+function isTask(value: unknown): value is MilestoneTask {
+  if (typeof value !== 'object' || value === null) return false;
+  const task = value as Partial<MilestoneTask>;
+  return typeof task.id === 'string' && typeof task.title === 'string';
+}
+
+/** Fills in what a type guard cannot cheaply check, including older entries with no tasks. */
+function normalise(milestone: Milestone): Milestone {
+  const tasks = (Array.isArray(milestone.tasks) ? milestone.tasks : [])
+    .filter(isTask)
+    .slice(0, MAX_TASKS_PER_MILESTONE)
+    .map((task) => ({
+      id: task.id,
+      title: task.title.slice(0, TASK_TITLE_MAX_LENGTH),
+      done: task.done === true,
+    }));
+
+  return {
+    ...milestone,
+    description: typeof milestone.description === 'string' ? milestone.description.slice(0, DESCRIPTION_MAX_LENGTH) : '',
+    unit: typeof milestone.unit === 'string' ? milestone.unit : '',
+    tasks,
+  };
 }
 
 export function getMilestones(): Milestone[] {
@@ -49,7 +89,10 @@ export function getMilestones(): Milestone[] {
     if (!Array.isArray(parsed)) return [];
 
     // Creation order, so a milestone does not jump around as its progress moves.
-    return parsed.filter(isMilestone).sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''));
+    return parsed
+      .filter(isMilestone)
+      .map(normalise)
+      .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''));
   } catch {
     return [];
   }
@@ -95,12 +138,95 @@ export function addMilestone(input: {
     current: clampCurrent(input.current ?? 0, target),
     target,
     unit: (input.unit ?? '').trim().slice(0, UNIT_MAX_LENGTH),
+    tasks: [],
     createdAt: now,
     updatedAt: now,
   };
 
   writeMilestones([...getMilestones(), milestone]);
   return milestone;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Tasks                                                                     */
+/* -------------------------------------------------------------------------- */
+
+/** Applies a change to one milestone, leaving the rest of the list alone. */
+function editMilestone(id: string, change: (milestone: Milestone) => Milestone | null): boolean {
+  const milestones = getMilestones();
+  const existing = milestones.find((milestone) => milestone.id === id);
+  if (!existing) return false;
+
+  const updated = change(existing);
+  if (!updated) return false;
+
+  writeMilestones(
+    milestones.map((milestone) =>
+      milestone.id === id ? { ...updated, updatedAt: new Date().toISOString() } : milestone
+    )
+  );
+  return true;
+}
+
+export function addMilestoneTask(milestoneId: string, title: string): boolean {
+  const trimmed = title.trim().slice(0, TASK_TITLE_MAX_LENGTH);
+  if (!trimmed) return false;
+
+  return editMilestone(milestoneId, (milestone) => {
+    if (milestone.tasks.length >= MAX_TASKS_PER_MILESTONE) return null;
+
+    const task: MilestoneTask = {
+      id: `task-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
+      title: trimmed,
+      done: false,
+    };
+
+    return { ...milestone, tasks: [...milestone.tasks, task] };
+  });
+}
+
+export function toggleMilestoneTask(milestoneId: string, taskId: string): boolean {
+  return editMilestone(milestoneId, (milestone) => {
+    if (!milestone.tasks.some((task) => task.id === taskId)) return null;
+
+    return {
+      ...milestone,
+      tasks: milestone.tasks.map((task) => (task.id === taskId ? { ...task, done: !task.done } : task)),
+    };
+  });
+}
+
+export function renameMilestoneTask(milestoneId: string, taskId: string, title: string): boolean {
+  const trimmed = title.trim().slice(0, TASK_TITLE_MAX_LENGTH);
+  if (!trimmed) return false;
+
+  return editMilestone(milestoneId, (milestone) => {
+    if (!milestone.tasks.some((task) => task.id === taskId)) return null;
+
+    return {
+      ...milestone,
+      tasks: milestone.tasks.map((task) => (task.id === taskId ? { ...task, title: trimmed } : task)),
+    };
+  });
+}
+
+/**
+ * Removes a task. Taking the last one out hands the milestone back to its own
+ * counter, so the progress it had before the tasks arrived is what shows again.
+ */
+export function deleteMilestoneTask(milestoneId: string, taskId: string): boolean {
+  return editMilestone(milestoneId, (milestone) => ({
+    ...milestone,
+    tasks: milestone.tasks.filter((task) => task.id !== taskId),
+  }));
+}
+
+/** Ticks or clears every task at once, for the complete and reopen buttons. */
+export function setAllMilestoneTasks(milestoneId: string, done: boolean): boolean {
+  return editMilestone(milestoneId, (milestone) => {
+    if (milestone.tasks.length === 0) return null;
+    return { ...milestone, tasks: milestone.tasks.map((task) => ({ ...task, done })) };
+  });
 }
 
 export function updateMilestone(
@@ -147,13 +273,41 @@ export function deleteMilestone(id: string) {
   writeMilestones(getMilestones().filter((milestone) => milestone.id !== id));
 }
 
+export interface MilestoneProgress {
+  current: number;
+  target: number;
+  /** True when the tasks are what decide it, rather than the counter. */
+  byTasks: boolean;
+}
+
+/**
+ * How far along a milestone is.
+ *
+ * Breaking one into tasks makes those the measure: counting both would leave two
+ * numbers free to disagree about the same thing. A milestone with no tasks keeps
+ * the counter it was created with.
+ */
+export function milestoneProgress(milestone: Milestone): MilestoneProgress {
+  if (milestone.tasks.length > 0) {
+    return {
+      current: milestone.tasks.filter((task) => task.done).length,
+      target: milestone.tasks.length,
+      byTasks: true,
+    };
+  }
+
+  return { current: milestone.current, target: milestone.target, byTasks: false };
+}
+
 export function milestonePercent(milestone: Milestone): number {
-  if (milestone.target <= 0) return 0;
-  return Math.min(100, Math.max(0, Math.round((milestone.current / milestone.target) * 100)));
+  const { current, target } = milestoneProgress(milestone);
+  if (target <= 0) return 0;
+  return Math.min(100, Math.max(0, Math.round((current / target) * 100)));
 }
 
 export function isComplete(milestone: Milestone): boolean {
-  return milestone.current >= milestone.target;
+  const { current, target } = milestoneProgress(milestone);
+  return current >= target;
 }
 
 export interface MilestoneSummary {

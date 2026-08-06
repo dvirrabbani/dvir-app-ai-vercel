@@ -177,7 +177,7 @@ function UsersSection({ users, voteCount }: { users: PollUser[]; voteCount: (use
                 </>
               ) : (
                 <>
-                  <span className="min-w-0">
+                  <span className="min-w-0 flex-1">
                     <span dir="auto" className="block truncate text-sm font-medium text-foreground">{user.name}</span>
                     <span className="text-xs text-muted-foreground">
                       {voteCount(user.id)} {voteCount(user.id) === 1 ? 'vote' : 'votes'}
@@ -334,7 +334,7 @@ function SharesSection({
                   </div>
                 ) : (
                   <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
+                    <div className="min-w-0 flex-1">
                       <p dir="auto" className="text-sm font-medium text-foreground">{share.title}</p>
                       {share.description && (
                         <p dir="auto" className="mt-0.5 text-xs text-muted-foreground">{share.description}</p>

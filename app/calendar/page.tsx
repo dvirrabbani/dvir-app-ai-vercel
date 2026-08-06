@@ -370,7 +370,9 @@ function EventRow({ event }: { event: CalendarEvent }) {
 
   return (
     <li className="flex items-start justify-between gap-3 rounded-xl bg-black/[0.03] p-3 dark:bg-white/[0.04]">
-      <div className="min-w-0">
+      {/* Fills the row, so a Hebrew title lands against the right edge instead of
+          being right-aligned inside a box only as wide as its own words. */}
+      <div className="min-w-0 flex-1">
         <p className="flex items-center gap-2">
           {event.time ? (
             <span className={`inline-flex items-center gap-1 text-xs tabular-nums ${EVENT_TIME_CLASS}`}>
@@ -380,7 +382,10 @@ function EventRow({ event }: { event: CalendarEvent }) {
           ) : (
             <span className="text-xs text-muted-foreground">All day</span>
           )}
-          <span dir="auto" className="truncate text-sm font-medium text-foreground">
+          {/* Takes the rest of the row so the title sits against its far edge —
+              left for English, right for Hebrew — rather than packing up against
+              the time chip whichever language it is in. */}
+          <span dir="auto" className="min-w-0 flex-1 truncate text-start text-sm font-medium text-foreground">
             {event.title}
           </span>
         </p>
