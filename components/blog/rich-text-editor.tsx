@@ -22,16 +22,38 @@ import {
   PilcrowLeft,
   PilcrowRight,
   ImagePlus,
+  FolderOpen,
   Table,
   Rows3,
   Columns3,
   TableRowsSplit,
   TableColumnsSplit,
+  BetweenHorizonalStart,
   Check,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { countWords, isImageUrl, isSafeImageSrc, sanitizeHtml } from '@/lib/local-posts';
+import {
+  MAX_COLUMN_WIDTH,
+  MIN_COLUMN_WIDTH,
+  countWords,
+  isImageUrl,
+  isSafeImageSrc,
+  localImageSrc,
+  sanitizeHtml,
+} from '@/lib/local-posts';
+import {
+  FolderStatus,
+  IMAGE_FOLDER_EVENT,
+  folderName,
+  folderStatus,
+  folderSupported,
+  forgetFolder,
+  pickFolder,
+  reconnectFolder,
+  saveImage,
+} from '@/lib/image-folder';
+import { restoreLocalImages, useLocalImages } from '@/lib/use-local-images';
 
 const EMPTY_PARAGRAPH = '<p><br></p>';
 
@@ -142,6 +164,7 @@ export function RichTextEditor({
   const surfaceRef = useRef<HTMLDivElement>(null);
   const countRef = useRef<HTMLSpanElement>(null);
   const savedRangeRef = useRef<Range | null>(null);
+  const columnTargetRef = useRef<{ table: HTMLTableElement; index: number } | null>(null);
 
   // The only React state here: the inline bars, opened by a click, never by typing.
   const [urlMode, setUrlMode] = useState<UrlMode>(null);
@@ -149,6 +172,27 @@ export function RichTextEditor({
   const [tableOpen, setTableOpen] = useState(false);
   const [tableRows, setTableRows] = useState(3);
   const [tableColumns, setTableColumns] = useState(3);
+  const [columnOpen, setColumnOpen] = useState(false);
+  const [columnWidth, setColumnWidth] = useState('');
+  const [folderOpen, setFolderOpen] = useState(false);
+  const [folderState, setFolderState] = useState<FolderStatus>('none');
+  const [folderLabel, setFolderLabel] = useState<string | null>(null);
+  const [folderNotice, setFolderNotice] = useState<string | null>(null);
+
+  // Pasted images are references until something reads them out of the folder.
+  useLocalImages(editorRef, folderState);
+
+  const refreshFolder = useCallback(async () => {
+    setFolderState(await folderStatus());
+    setFolderLabel(await folderName());
+  }, []);
+
+  useEffect(() => {
+    void refreshFolder();
+    const onChange = () => void refreshFolder();
+    window.addEventListener(IMAGE_FOLDER_EVENT, onChange);
+    return () => window.removeEventListener(IMAGE_FOLDER_EVENT, onChange);
+  }, [refreshFolder]);
 
   /* ---------------------------------------------------------------------- */
   /*  Imperative UI updates                                                  */
@@ -243,7 +287,9 @@ export function RichTextEditor({
   useImperativeHandle(
     ref,
     () => ({
-      getHtml: () => editorRef.current?.innerHTML ?? '',
+      // Never the raw innerHTML: pasted images are showing blob URLs, and a blob
+      // URL saved into a post would be dropped by the sanitizer as unreadable.
+      getHtml: () => (editorRef.current ? restoreLocalImages(editorRef.current) : ''),
       setHtml: (html: string) => {
         const editor = editorRef.current;
         if (!editor) return;
@@ -318,6 +364,79 @@ export function RichTextEditor({
     return (element?.closest('td, th') as HTMLTableCellElement | null) ?? null;
   }, []);
 
+  /**
+   * The table's `<colgroup>`, created if missing and always holding exactly one
+   * `<col>` per column. Column widths live here rather than on the cells: one
+   * place per column instead of one per row, which is also what survives a row
+   * being added or deleted.
+   */
+  const syncColgroup = useCallback((table: HTMLTableElement): HTMLTableColElement[] => {
+    const columns = table.rows[0]?.children.length ?? 0;
+
+    let group = table.querySelector('colgroup');
+    if (!group) {
+      group = document.createElement('colgroup');
+      table.prepend(group);
+    }
+
+    while (group.children.length < columns) group.appendChild(document.createElement('col'));
+    while (group.children.length > columns) group.lastElementChild?.remove();
+
+    return Array.from(group.children) as HTMLTableColElement[];
+  }, []);
+
+  /** The column the caret sits in, as a table and an index into its columns. */
+  const currentColumn = useCallback((): { table: HTMLTableElement; index: number } | null => {
+    const cell = currentCell();
+    const table = cell?.closest('table');
+    if (!cell || !table) return null;
+
+    const index = Array.from(cell.parentElement?.children ?? []).indexOf(cell);
+    return index < 0 ? null : { table, index };
+  }, [currentCell]);
+
+  const openColumnWidth = useCallback(() => {
+    const target = currentColumn();
+    if (!target) return;
+
+    // The input below takes focus, so the column is remembered rather than
+    // looked up again when Apply is pressed.
+    columnTargetRef.current = target;
+
+    const existing = target.table.querySelectorAll('colgroup > col')[target.index]?.getAttribute('width');
+    setColumnWidth(existing ?? '');
+    setUrlMode(null);
+    setTableOpen(false);
+    setColumnOpen(true);
+  }, [currentColumn]);
+
+  const applyColumnWidth = useCallback(
+    (width: number | null) => {
+      const target = columnTargetRef.current;
+      if (!target || !target.table.isConnected) return;
+
+      const col = syncColgroup(target.table)[target.index];
+      if (!col) return;
+
+      if (width === null) {
+        col.removeAttribute('width');
+      } else {
+        const clamped = Math.min(Math.max(Math.trunc(width) || 0, MIN_COLUMN_WIDTH), MAX_COLUMN_WIDTH);
+        col.setAttribute('width', String(clamped));
+      }
+
+      // A colgroup holding no widths at all is noise, and leaving it behind would
+      // keep the wrapping rule on. Drop it so the table goes back to sizing itself.
+      const group = target.table.querySelector('colgroup');
+      if (group && !group.querySelector('col[width]')) group.remove();
+
+      setColumnOpen(false);
+      editorRef.current?.focus();
+      refreshUi();
+    },
+    [refreshUi, syncColgroup]
+  );
+
   const insertTable = useCallback(
     (rows: number, columns: number) => {
       const safeRows = Math.min(Math.max(Math.trunc(rows) || 0, 1), 20);
@@ -374,6 +493,16 @@ export function RichTextEditor({
       else row.appendChild(fresh);
     }
 
+    // The new column needs its own <col>, or every width after it would shift
+    // one place to the left.
+    const group = table.querySelector('colgroup');
+    if (group) {
+      const fresh = document.createElement('col');
+      const reference = group.children[index];
+      if (reference) reference.after(fresh);
+      else group.appendChild(fresh);
+    }
+
     refreshUi();
   }, [currentCell, refreshUi]);
 
@@ -402,6 +531,11 @@ export function RichTextEditor({
       table.remove();
     } else {
       for (const row of Array.from(table.rows)) row.children[index]?.remove();
+
+      const group = table.querySelector('colgroup');
+      group?.children[index]?.remove();
+      // The remaining columns may all be back on auto, which needs no colgroup.
+      if (group && !group.querySelector('col[width]')) group.remove();
     }
 
     editorRef.current?.focus();
@@ -446,11 +580,74 @@ export function RichTextEditor({
   /*  Input handling                                                         */
   /* ---------------------------------------------------------------------- */
 
+  /**
+   * Writes a pasted screenshot to the author's image folder and drops a
+   * reference to it in at the caret. The bytes never touch the post itself.
+   */
+  const insertPastedImage = useCallback(
+    async (blob: Blob, range: Range | null) => {
+      const name = await saveImage(blob);
+
+      // Restore where the caret was: awaiting the write let it go.
+      const selection = window.getSelection();
+      if (range && selection) {
+        selection.removeAllRanges();
+        selection.addRange(range);
+      }
+      editorRef.current?.focus();
+
+      if (!name) {
+        setFolderNotice('That image could not be saved to the folder. Try reconnecting it.');
+        return;
+      }
+
+      document.execCommand('insertHTML', false, `<img src="${escapeHtml(localImageSrc(name))}" alt="">`);
+      setFolderNotice(null);
+      refreshUi();
+    },
+    [refreshUi]
+  );
+
   const handlePaste = useCallback(
     (event: React.ClipboardEvent<HTMLDivElement>) => {
-      event.preventDefault();
       const html = event.clipboardData.getData('text/html');
       const text = event.clipboardData.getData('text/plain');
+
+      // A screenshot arrives as a file with no useful text beside it. Take that
+      // branch first, or the empty text below would swallow it.
+      const image = Array.from(event.clipboardData.items).find(
+        (item) => item.kind === 'file' && item.type.startsWith('image/')
+      );
+
+      if (image && !isImageUrl(text)) {
+        event.preventDefault();
+        const blob = image.getAsFile();
+        if (!blob) return;
+
+        if (!folderSupported()) {
+          setFolderNotice('Pasting images needs Chrome or Edge — this browser cannot write to a folder.');
+          return;
+        }
+
+        const selection = window.getSelection();
+        const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0).cloneRange() : null;
+
+        void folderStatus().then((status) => {
+          if (status !== 'ready') {
+            setFolderNotice(
+              status === 'none'
+                ? 'Choose a folder to keep pasted images in first.'
+                : 'Reconnect the image folder to paste images into it.'
+            );
+            setFolderOpen(true);
+            return;
+          }
+          void insertPastedImage(blob, range);
+        });
+        return;
+      }
+
+      event.preventDefault();
 
       // Pasting the address of an image drops the image in, not its URL.
       if (isImageUrl(text)) {
@@ -462,7 +659,7 @@ export function RichTextEditor({
       }
       refreshUi();
     },
-    [refreshUi]
+    [insertPastedImage, refreshUi]
   );
 
   const handleKeyDown = useCallback(
@@ -545,6 +742,18 @@ export function RichTextEditor({
         <ToolbarButton title="Insert image from URL" onClick={() => openUrlInput('image')}>
           <ImagePlus className="h-4 w-4" />
         </ToolbarButton>
+        <ToolbarButton
+          title="Image folder (for pasted screenshots)"
+          active={folderOpen}
+          onClick={() => {
+            setUrlMode(null);
+            setTableOpen(false);
+            setColumnOpen(false);
+            setFolderOpen((prev) => !prev);
+          }}
+        >
+          <FolderOpen className="h-4 w-4" />
+        </ToolbarButton>
 
         <ToolbarDivider />
 
@@ -569,6 +778,9 @@ export function RichTextEditor({
         </ToolbarButton>
         <ToolbarButton title="Delete column" requiresTable onClick={removeColumn}>
           <TableColumnsSplit className="h-4 w-4" />
+        </ToolbarButton>
+        <ToolbarButton title="Column width" requiresTable active={columnOpen} onClick={openColumnWidth}>
+          <BetweenHorizonalStart className="h-4 w-4" />
         </ToolbarButton>
 
         <ToolbarDivider />
@@ -701,6 +913,143 @@ export function RichTextEditor({
         </div>
       )}
 
+      {/* Image folder */}
+      {folderOpen && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-border bg-[#FF4D8E]/5 px-2 py-2">
+          <FolderOpen className="h-4 w-4 shrink-0 text-[#FF4D8E]" />
+          <span className="text-xs text-muted-foreground">
+            {folderState === 'unsupported'
+              ? 'This browser cannot write to a folder — pasted screenshots need Chrome or Edge.'
+              : folderState === 'none'
+                ? 'No folder chosen yet.'
+                : folderState === 'needs-permission'
+                  ? `“${folderLabel}” needs permission again.`
+                  : `Saving pasted images to “${folderLabel}”.`}
+          </span>
+
+          {folderState !== 'unsupported' && (
+            <span className="ml-auto flex items-center gap-1">
+              {folderState === 'needs-permission' && (
+                <button
+                  type="button"
+                  onClick={() => void reconnectFolder()}
+                  className="inline-flex h-7 items-center gap-1.5 rounded-md bg-[#FF4D8E] px-3 text-xs font-medium text-white hover:bg-[#FF4D8E]/90"
+                >
+                  <Check className="h-3.5 w-3.5" />
+                  Reconnect
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => void pickFolder()}
+                className="inline-flex h-7 items-center rounded-md border border-border px-3 text-xs font-medium text-foreground hover:border-[#FF4D8E]/40"
+              >
+                {folderState === 'none' ? 'Choose folder' : 'Change'}
+              </button>
+              {folderState !== 'none' && (
+                <button
+                  type="button"
+                  onClick={() => void forgetFolder()}
+                  title="Forget this folder. Nothing inside it is deleted."
+                  className="inline-flex h-7 items-center rounded-md px-3 text-xs text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10"
+                >
+                  Forget
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={() => setFolderOpen(false)}
+                title="Cancel"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </span>
+          )}
+
+          <p className="w-full text-xs text-muted-foreground">
+            Screenshots pasted into the post are written here as files; the post keeps only their names. Removing one
+            from the post and saving deletes its file, unless another post still uses it.
+          </p>
+        </div>
+      )}
+
+      {/* A paste that could not be saved says so here rather than failing quietly. */}
+      {folderNotice && !folderOpen && (
+        <div className="flex items-center gap-2 border-b border-border bg-destructive/5 px-2 py-2">
+          <FolderOpen className="h-4 w-4 shrink-0 text-destructive" />
+          <span className="text-xs text-destructive">{folderNotice}</span>
+          <button
+            type="button"
+            onClick={() => setFolderNotice(null)}
+            title="Dismiss"
+            className="ml-auto inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
+      {/* Column width */}
+      {columnOpen && (
+        <div className="flex flex-wrap items-center gap-2 border-b border-border bg-[#FF4D8E]/5 px-2 py-2">
+          <BetweenHorizonalStart className="h-4 w-4 shrink-0 text-[#FF4D8E]" />
+          <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            Width
+            <input
+              autoFocus
+              type="number"
+              min={MIN_COLUMN_WIDTH}
+              max={MAX_COLUMN_WIDTH}
+              step={10}
+              value={columnWidth}
+              onChange={(e) => setColumnWidth(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  applyColumnWidth(Number(columnWidth) || null);
+                }
+                if (e.key === 'Escape') setColumnOpen(false);
+              }}
+              placeholder="auto"
+              aria-label="Column width in pixels"
+              className="w-20 rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground outline-none focus:border-[#FF4D8E]/50"
+            />
+            px
+          </label>
+          <span className="ml-auto flex items-center gap-1">
+            <button
+              type="button"
+              onClick={() => applyColumnWidth(Number(columnWidth) || null)}
+              title="Apply column width"
+              className="inline-flex h-7 items-center gap-1.5 rounded-md bg-[#FF4D8E] px-3 text-xs font-medium text-white hover:bg-[#FF4D8E]/90"
+            >
+              <Check className="h-3.5 w-3.5" />
+              Apply
+            </button>
+            <button
+              type="button"
+              onClick={() => applyColumnWidth(null)}
+              title="Let this column size itself"
+              className="inline-flex h-7 items-center rounded-md px-3 text-xs font-medium text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10"
+            >
+              Auto
+            </button>
+            <button
+              type="button"
+              onClick={() => setColumnOpen(false)}
+              title="Cancel"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </span>
+          <p className="w-full text-xs text-muted-foreground">
+            Applies to the column the caret is in, between {MIN_COLUMN_WIDTH} and {MAX_COLUMN_WIDTH}px.
+          </p>
+        </div>
+      )}
+
       {/* Editable surface */}
       <div ref={surfaceRef} data-empty="true" className="group/rte relative">
         <p className="pointer-events-none absolute start-4 top-4 hidden text-sm text-muted-foreground group-data-[empty=true]/rte:block md:text-base">
@@ -716,7 +1065,7 @@ export function RichTextEditor({
           // `auto` follows the first strong character, so typing Hebrew flips it.
           dir={direction ?? 'auto'}
           onInput={refreshUi}
-          onBlur={() => onBlur?.(editorRef.current?.innerHTML ?? '')}
+          onBlur={() => onBlur?.(editorRef.current ? restoreLocalImages(editorRef.current) : '')}
           onPaste={handlePaste}
           onKeyDown={handleKeyDown}
           onKeyUp={refreshUi}

@@ -9,6 +9,8 @@ import { CoverPosition } from '@/lib/blog';
 import { CategorySelect } from '@/components/blog/category-select';
 import { CoverImage } from '@/components/blog/cover-image';
 import { EditorDirection, RichTextEditor, RichTextEditorHandle } from '@/components/blog/rich-text-editor';
+import { discardUnusedImages } from '@/lib/image-folder';
+import { useLocalImages } from '@/lib/use-local-images';
 import {
   LocalBlogPost,
   POST_CATEGORIES,
@@ -74,6 +76,7 @@ export function PostEditor({ post, draft }: PostEditorProps) {
   const [contentHtml, setContentHtml] = useState(initial?.contentHtml ?? '');
   const editorApi = useRef<RichTextEditorHandle>(null);
   const draftStatusRef = useRef<HTMLSpanElement>(null);
+  const previewRef = useRef<HTMLDivElement>(null);
 
   const restoredDraft = !isEditing && Boolean(draft?.title || draft?.contentHtml) && !dismissedRestore;
   const sessionName = session?.user?.name ?? '';
@@ -157,6 +160,8 @@ export function PostEditor({ post, draft }: PostEditorProps) {
     };
 
     saveLocalPost(saved);
+    // Runs after the save so the sweep sees the version that was just written.
+    void discardUnusedImages(post?.contentHtml ?? '', cleanHtml);
     if (!isEditing) clearDraft();
     router.push(`/blog/${saved.slug}`);
   }, [
@@ -181,6 +186,9 @@ export function PostEditor({ post, draft }: PostEditorProps) {
   }, []);
 
   const previewHtml = showPreview ? sanitizeHtml(contentHtml) : '';
+
+  // The preview renders stored HTML, so its pasted images are references too.
+  useLocalImages(previewRef, previewHtml);
 
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
@@ -339,7 +347,7 @@ export function PostEditor({ post, draft }: PostEditorProps) {
               <CoverImage src={coverImage.trim()} alt="" className="mb-4 max-h-64 w-full rounded-lg object-cover" />
               {htmlToPlainText(previewHtml) ? (
                 // Sanitized against an allow-list immediately above.
-                <div dangerouslySetInnerHTML={{ __html: previewHtml }} />
+                <div ref={previewRef} dangerouslySetInnerHTML={{ __html: previewHtml }} />
               ) : (
                 <p className="text-muted-foreground">Nothing to preview yet.</p>
               )}
