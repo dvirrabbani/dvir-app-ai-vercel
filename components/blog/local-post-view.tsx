@@ -36,7 +36,7 @@ export function LocalPostView({ slug: rawSlug }: { slug: string }) {
   if (!hydrated) {
     return (
       <main className="min-h-screen pt-24 md:pt-28">
-        <div className="container mx-auto max-w-3xl animate-pulse px-4 md:px-6">
+        <div className="container mx-auto max-w-6xl animate-pulse px-4 md:px-6">
           <div className="mb-8 h-4 w-32 rounded bg-foreground/10" />
           <div className="mb-4 h-10 w-3/4 rounded bg-foreground/10" />
           <div className="mb-10 h-4 w-1/2 rounded bg-foreground/10" />
