@@ -17,7 +17,8 @@ import {
   ListFilter,
 } from 'lucide-react';
 import { CoverImage } from '@/components/blog/cover-image';
-import { LocalBlogPost, deleteLocalPost, getCategoryColor } from '@/lib/local-posts';
+import { LocalBlogPost, deleteLocalPost } from '@/lib/local-posts';
+import { getCategoryColor } from '@/lib/categories';
 import { useLocalPosts } from '@/lib/use-local-posts';
 
 type SortOrder = 'newest' | 'oldest';

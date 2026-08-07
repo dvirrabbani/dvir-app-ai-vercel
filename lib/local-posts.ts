@@ -14,35 +14,8 @@ export const LOCAL_DRAFT_KEY = 'dvir-blog:draft';
 /** Fired on `window` after any write, so open views can refresh themselves. */
 export const LOCAL_POSTS_EVENT = 'local-posts-changed';
 
-export const POST_CATEGORIES = [
-  'Engineering',
-  'Design',
-  'Framework',
-  'Product',
-  'Personal',
-  'Finance',
-  'Health',
-  'Community',
-];
-
-/** Badge colour per category. Add a category above and give it a colour here. */
-const POST_CATEGORY_COLORS: Record<string, string> = {
-  Engineering: '#FF4D8E',
-  Design: '#00C2FF',
-  Framework: '#FF9100',
-  Product: '#8B5CF6',
-  Personal: '#10B981',
-  Finance: '#0D9488',
-  Health: '#DC2626',
-  Community: '#6366F1',
-};
-
-const FALLBACK_CATEGORY_COLOR = '#FF4D8E';
-
-/** Colour for a category, including ones from older posts that are no longer listed. */
-export function getCategoryColor(category: string): string {
-  return POST_CATEGORY_COLORS[category] ?? FALLBACK_CATEGORY_COLOR;
-}
+// Categories moved to `lib/categories.ts` when they became something the author
+// edits rather than a list written here. A post still stores the plain name.
 
 /* -------------------------------------------------------------------------- */
 /*  HTML sanitizing                                                           */
@@ -528,6 +501,23 @@ export function saveLocalPost(post: LocalBlogPost) {
 
 export function deleteLocalPost(slug: string) {
   writeLocalPosts(getLocalPosts().filter((post) => post.slug !== slug));
+}
+
+/**
+ * Rewrites every stored post through `change`, in one write and keeping the
+ * order they are in. `saveLocalPost` moves whatever it touches to the front,
+ * which is right for an edit and wrong for a sweep across all of them.
+ */
+export function updateLocalPosts(change: (post: LocalBlogPost) => LocalBlogPost): void {
+  if (typeof window === 'undefined') return;
+
+  const posts = getLocalPosts();
+  const next = posts.map(change);
+
+  // Nothing moved, so nothing needs writing.
+  if (next.every((post, index) => post === posts[index])) return;
+
+  writeLocalPosts(next);
 }
 
 /* -------------------------------------------------------------------------- */

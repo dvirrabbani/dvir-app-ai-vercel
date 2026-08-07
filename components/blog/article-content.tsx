@@ -5,7 +5,8 @@ import Link from 'next/link';
 import { ArrowLeft, Play, Pause, Square, Volume2, VolumeX, SkipBack, Settings, X } from 'lucide-react';
 import { BlogPost } from '@/lib/blog';
 import { CoverImage } from '@/components/blog/cover-image';
-import { applyAutoDirection, getCategoryColor, wrapTables } from '@/lib/local-posts';
+import { applyAutoDirection, wrapTables } from '@/lib/local-posts';
+import { getCategoryColor } from '@/lib/categories';
 import { prepareLocalImages, useLocalImages } from '@/lib/use-local-images';
 
 // Note: Blog content HTML comes either from our own hardcoded lib/blog.ts file
