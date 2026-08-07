@@ -3,10 +3,22 @@
  * in localStorage only — this is one browser's copy, not shared with anyone.
  */
 
+// Day keys are the same YYYY-MM-DD local strings the calendar uses, so a date
+// here means the same day it does there. Only the pure helpers are borrowed.
+import { fromDateKey, isValidDateKey, toDateKey } from '@/lib/calendar';
+
 export interface MilestoneTask {
   id: string;
   title: string;
   done: boolean;
+}
+
+/** The stretch of days a milestone is meant to run over, both ends included. */
+export interface MilestoneRange {
+  /** Local calendar day as YYYY-MM-DD. Never after `end`. */
+  start: string;
+  /** Local calendar day as YYYY-MM-DD. */
+  end: string;
 }
 
 export interface Milestone {
@@ -25,6 +37,12 @@ export interface Milestone {
    * says how far along it is and the counter above is left alone.
    */
   tasks: MilestoneTask[];
+  /**
+   * The days this one runs between, or `null` when it is not on a schedule.
+   * Having a range is what puts a milestone in the dated section of the page —
+   * nothing else about it changes.
+   */
+  range: MilestoneRange | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -59,6 +77,22 @@ function isTask(value: unknown): value is MilestoneTask {
   return typeof task.id === 'string' && typeof task.title === 'string';
 }
 
+/**
+ * A usable range or nothing. Both ends have to be real days; one typed backwards
+ * is read as the two dates in the other order rather than thrown away.
+ */
+export function normaliseRange(value: unknown): MilestoneRange | null {
+  if (typeof value !== 'object' || value === null) return null;
+
+  const range = value as Partial<MilestoneRange>;
+  if (typeof range.start !== 'string' || typeof range.end !== 'string') return null;
+  if (!isValidDateKey(range.start) || !isValidDateKey(range.end)) return null;
+
+  return range.start <= range.end
+    ? { start: range.start, end: range.end }
+    : { start: range.end, end: range.start };
+}
+
 /** Fills in what a type guard cannot cheaply check, including older entries with no tasks. */
 function normalise(milestone: Milestone): Milestone {
   const tasks = (Array.isArray(milestone.tasks) ? milestone.tasks : [])
@@ -75,6 +109,9 @@ function normalise(milestone: Milestone): Milestone {
     description: typeof milestone.description === 'string' ? milestone.description.slice(0, DESCRIPTION_MAX_LENGTH) : '',
     unit: typeof milestone.unit === 'string' ? milestone.unit : '',
     tasks,
+    // Absent on every milestone saved before dates existed, so this is the
+    // upgrade path as much as it is the guard.
+    range: normaliseRange(milestone.range),
   };
 }
 
@@ -124,6 +161,8 @@ export function addMilestone(input: {
   target: number;
   unit?: string;
   current?: number;
+  /** Leave off for a milestone with no dates on it. */
+  range?: MilestoneRange | null;
 }): Milestone | null {
   const title = input.title.trim().slice(0, TITLE_MAX_LENGTH);
   if (!title) return null;
@@ -139,6 +178,7 @@ export function addMilestone(input: {
     target,
     unit: (input.unit ?? '').trim().slice(0, UNIT_MAX_LENGTH),
     tasks: [],
+    range: normaliseRange(input.range),
     createdAt: now,
     updatedAt: now,
   };
@@ -231,7 +271,7 @@ export function setAllMilestoneTasks(milestoneId: string, done: boolean): boolea
 
 export function updateMilestone(
   id: string,
-  changes: Partial<Pick<Milestone, 'title' | 'description' | 'unit' | 'target' | 'current'>>
+  changes: Partial<Pick<Milestone, 'title' | 'description' | 'unit' | 'target' | 'current' | 'range'>>
 ): boolean {
   const milestones = getMilestones();
   const existing = milestones.find((milestone) => milestone.id === id);
@@ -250,6 +290,9 @@ export function updateMilestone(
     target,
     // Lowering the target pulls the progress down with it.
     current: clampCurrent(changes.current ?? existing.current, target),
+    // `in` rather than `??`, so passing `null` can actually clear the dates
+    // instead of being read as "leave them alone".
+    range: 'range' in changes ? normaliseRange(changes.range) : existing.range,
     updatedAt: new Date().toISOString(),
   };
 
@@ -315,8 +358,124 @@ export function isComplete(milestone: Milestone): boolean {
  * left in the creation order `getMilestones` returns (sort is stable). Only for
  * showing a list — what gets stored stays in creation order.
  */
-export function sortByCompletion(milestones: Milestone[]): Milestone[] {
+export function sortByCompletion<T extends Milestone>(milestones: T[]): T[] {
   return [...milestones].sort((a, b) => Number(isComplete(a)) - Number(isComplete(b)));
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Dates                                                                     */
+/* -------------------------------------------------------------------------- */
+
+const DAY_MS = 86_400_000;
+
+/** A milestone that has dates on it, narrowed so `range` is no longer nullable. */
+export type DatedMilestone = Milestone & { range: MilestoneRange };
+
+export function isDated(milestone: Milestone): milestone is DatedMilestone {
+  return milestone.range !== null;
+}
+
+/**
+ * Whole days from one day key to the next. Both are read as local midnight and
+ * the result is rounded, so the hour a clock change adds or drops cannot turn a
+ * whole number of days into a fraction.
+ */
+export function daysBetween(from: string, to: string): number {
+  return Math.round((fromDateKey(to).getTime() - fromDateKey(from).getTime()) / DAY_MS);
+}
+
+export type RangeState = 'upcoming' | 'active' | 'ended';
+
+export interface RangeStatus {
+  state: RangeState;
+  /** Days the range covers, counting both ends. At least 1. */
+  totalDays: number;
+  /** Days from today to the end. 0 on the last day, negative once it is past. */
+  daysLeft: number;
+  /** Days from today to the start. 0 once it has begun. */
+  daysUntilStart: number;
+  /** How much of the range has gone by, 0–100 — the clock, not the work. */
+  timePercent: number;
+}
+
+/**
+ * Where today sits inside a range.
+ *
+ * `today` is a parameter so callers can pass a fixed day; it defaults to the
+ * real one, which means this must only be called from the browser — the page
+ * renders it behind `hydrated`, so the server never sees a different answer.
+ */
+export function rangeStatus(range: MilestoneRange, today: string = toDateKey(new Date())): RangeStatus {
+  const totalDays = daysBetween(range.start, range.end) + 1;
+  const daysUntilStart = Math.max(daysBetween(today, range.start), 0);
+  const daysLeft = daysBetween(today, range.end);
+
+  // The day in progress counts as spent, so a one-day range reads 100% on the day.
+  const elapsed = Math.min(Math.max(daysBetween(range.start, today) + 1, 0), totalDays);
+
+  return {
+    state: daysUntilStart > 0 ? 'upcoming' : daysLeft < 0 ? 'ended' : 'active',
+    totalDays,
+    daysLeft,
+    daysUntilStart,
+    timePercent: Math.round((elapsed / totalDays) * 100),
+  };
+}
+
+/** True when the last day has gone by with work still left. */
+export function isOverdue(milestone: Milestone, today?: string): boolean {
+  if (!isDated(milestone) || isComplete(milestone)) return false;
+  return rangeStatus(milestone.range, today).state === 'ended';
+}
+
+export function formatRange(range: MilestoneRange): string {
+  const start = fromDateKey(range.start);
+  const end = fromDateKey(range.end);
+
+  // The year is said once when both ends share it, twice when they do not.
+  const sameYear = start.getFullYear() === end.getFullYear();
+  const startText = start.toLocaleDateString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    ...(sameYear ? {} : { year: 'numeric' }),
+  });
+  const endText = end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+
+  return `${startText} – ${endText}`;
+}
+
+function plural(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`;
+}
+
+/** The short "12 days left" line that sits beside the dates. */
+export function rangeCountdown(status: RangeStatus): string {
+  if (status.state === 'upcoming') {
+    return status.daysUntilStart === 1 ? 'Starts tomorrow' : `Starts in ${plural(status.daysUntilStart, 'day')}`;
+  }
+
+  if (status.state === 'ended') {
+    const over = Math.abs(status.daysLeft);
+    return over === 1 ? 'Ended yesterday' : `Ended ${plural(over, 'day')} ago`;
+  }
+
+  if (status.daysLeft === 0) return 'Ends today';
+  return `${plural(status.daysLeft, 'day')} left`;
+}
+
+/** The dated ones and the rest, since the page shows them in separate sections. */
+export function splitByRange(milestones: Milestone[]): { dated: DatedMilestone[]; undated: Milestone[] } {
+  return {
+    dated: milestones.filter(isDated),
+    undated: milestones.filter((milestone) => !isDated(milestone)),
+  };
+}
+
+/** Soonest deadline first, so what runs out next is what is read first. */
+export function sortByDeadline(milestones: DatedMilestone[]): DatedMilestone[] {
+  return [...milestones].sort(
+    (a, b) => a.range.end.localeCompare(b.range.end) || a.range.start.localeCompare(b.range.start)
+  );
 }
 
 export interface MilestoneSummary {

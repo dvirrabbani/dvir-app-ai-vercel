@@ -2,12 +2,15 @@
 
 import { useMemo, useSyncExternalStore } from 'react';
 import {
+  DatedMilestone,
   MILESTONES_EVENT,
   MILESTONES_KEY,
   Milestone,
   MilestoneSummary,
   getMilestones,
   sortByCompletion,
+  sortByDeadline,
+  splitByRange,
   summarise,
 } from '@/lib/milestones';
 
@@ -35,6 +38,10 @@ function getServerSnapshot(): null {
 
 interface MilestonesState {
   milestones: Milestone[];
+  /** The ones with dates on them, soonest deadline first. */
+  dated: DatedMilestone[];
+  /** Everything else, which is what the open/done list shows. */
+  undated: Milestone[];
   summary: MilestoneSummary;
   /** False on the server and during hydration, so callers can show a placeholder. */
   hydrated: boolean;
@@ -45,11 +52,26 @@ export function useMilestones(): MilestonesState {
 
   return useMemo(() => {
     if (raw === null) {
-      return { milestones: [], summary: { total: 0, completed: 0, averagePercent: 0 }, hydrated: false };
+      return {
+        milestones: [],
+        dated: [],
+        undated: [],
+        summary: { total: 0, completed: 0, averagePercent: 0 },
+        hydrated: false,
+      };
     }
 
-    // Unfinished first, done last — so the list reads as what is left to do.
-    const milestones = sortByCompletion(getMilestones());
-    return { milestones, summary: summarise(milestones), hydrated: true };
+    const stored = getMilestones();
+    const { dated, undated } = splitByRange(stored);
+
+    return {
+      // Unfinished first, done last — so each list reads as what is left to do.
+      milestones: sortByCompletion(stored),
+      // Sorts are stable, so the deadline order survives inside each half.
+      dated: sortByCompletion(sortByDeadline(dated)),
+      undated: sortByCompletion(undated),
+      summary: summarise(stored),
+      hydrated: true,
+    };
   }, [raw]);
 }
