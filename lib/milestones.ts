@@ -310,6 +310,15 @@ export function isComplete(milestone: Milestone): boolean {
   return current >= target;
 }
 
+/**
+ * Display order: the ones still going first, the finished ones after, each group
+ * left in the creation order `getMilestones` returns (sort is stable). Only for
+ * showing a list — what gets stored stays in creation order.
+ */
+export function sortByCompletion(milestones: Milestone[]): Milestone[] {
+  return [...milestones].sort((a, b) => Number(isComplete(a)) - Number(isComplete(b)));
+}
+
 export interface MilestoneSummary {
   total: number;
   completed: number;
