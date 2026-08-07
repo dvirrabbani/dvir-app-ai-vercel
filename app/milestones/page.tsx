@@ -3,13 +3,27 @@
 import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Plus, Minus, Trash2, Pencil, Check, Flag, ListFilter, Target } from 'lucide-react';
+import {
+  ArrowLeft,
+  CalendarRange,
+  Plus,
+  Minus,
+  Trash2,
+  Pencil,
+  Check,
+  Flag,
+  ListFilter,
+  Target,
+} from 'lucide-react';
 import {
   DESCRIPTION_MAX_LENGTH,
+  DatedMilestone,
   MAX_TARGET,
   MAX_TASKS_PER_MILESTONE,
   Milestone,
+  MilestoneRange,
   MilestoneTask,
+  RangeStatus,
   TASK_TITLE_MAX_LENGTH,
   TITLE_MAX_LENGTH,
   UNIT_MAX_LENGTH,
@@ -17,9 +31,14 @@ import {
   addMilestoneTask,
   deleteMilestone,
   deleteMilestoneTask,
+  formatRange,
   isComplete,
+  isOverdue,
   milestonePercent,
   milestoneProgress,
+  normaliseRange,
+  rangeCountdown,
+  rangeStatus,
   renameMilestoneTask,
   setAllMilestoneTasks,
   setProgress,
@@ -32,6 +51,10 @@ import { useMilestones } from '@/lib/use-milestones';
 const fieldClass =
   'w-full rounded-xl border border-gray-200 bg-white/60 px-4 py-2.5 text-sm text-[#1C1C1E] outline-none transition-colors placeholder:text-gray-500 focus:border-[#FF4D8E]/50 focus:ring-2 focus:ring-[#FF4D8E]/20 dark:border-white/10 dark:bg-white/5 dark:text-white dark:placeholder:text-gray-400';
 
+// A native date input paints its own picker and calendar glyph from the colour
+// scheme, which stays light — and unreadable on the dark card — without this.
+const dateFieldClass = `${fieldClass} [color-scheme:light] dark:[color-scheme:dark]`;
+
 const cardClass =
   'rounded-2xl border border-white/30 bg-white/60 p-5 backdrop-blur-md dark:border-white/10 dark:bg-white/5 md:p-6';
 
@@ -42,15 +65,17 @@ const PROGRESS_COLOR = '#FF4D8E';
 type StatusFilter = 'open' | 'done';
 
 export default function MilestonesPage() {
-  const { milestones, summary, hydrated } = useMilestones();
+  const { dated, undated, summary, hydrated } = useMilestones();
   const [filter, setFilter] = useState<StatusFilter>('open');
 
   const visible = useMemo(
-    () => milestones.filter((milestone) => (filter === 'done' ? isComplete(milestone) : !isComplete(milestone))),
-    [filter, milestones]
+    () => undated.filter((milestone) => (filter === 'done' ? isComplete(milestone) : !isComplete(milestone))),
+    [filter, undated]
   );
 
-  const openCount = summary.total - summary.completed;
+  // Counted over the undated half only, since that is the list these chips filter.
+  const doneCount = useMemo(() => undated.filter(isComplete).length, [undated]);
+  const openCount = undated.length - doneCount;
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-[#FFF5F8] via-background to-background dark:from-[#1C1C1E] dark:via-[#1C1C1E] dark:to-[#1C1C1E]">
@@ -75,7 +100,7 @@ export default function MilestonesPage() {
           </p>
         </motion.header>
 
-        {/* Summary */}
+        {/* Summary — across both sections, since it is the whole page in a line */}
         {hydrated && summary.total > 0 && (
           <section className={`${cardClass} mb-6`}>
             <div className="flex flex-wrap items-center justify-between gap-4">
@@ -95,10 +120,10 @@ export default function MilestonesPage() {
           </section>
         )}
 
-        <NewMilestoneForm />
+        <MilestoneForm />
 
         {/* Filter */}
-        {hydrated && summary.total > 0 && (
+        {hydrated && undated.length > 0 && (
           <section className={`${cardClass} mb-6 flex flex-wrap items-center gap-x-4 gap-y-3 py-4`}>
             <h2 className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
               <ListFilter className="h-3.5 w-3.5" />
@@ -113,7 +138,7 @@ export default function MilestonesPage() {
               />
               <StatusChip
                 label="Done"
-                count={summary.completed}
+                count={doneCount}
                 tone="done"
                 active={filter === 'done'}
                 onClick={() => setFilter('done')}
@@ -122,51 +147,45 @@ export default function MilestonesPage() {
           </section>
         )}
 
-        {/* List */}
-        <section className="space-y-4 pb-16 md:pb-24">
+        {/* Undated list */}
+        <section className="space-y-4">
           {!hydrated ? (
             <div className="space-y-4" aria-hidden>
               {Array.from({ length: 2 }).map((_, index) => (
                 <div key={index} className="h-40 animate-pulse rounded-2xl bg-foreground/5" />
               ))}
             </div>
-          ) : milestones.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-border p-10 text-center">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#FF4D8E]/10">
-                <Flag className="h-6 w-6 text-[#FF4D8E]" />
-              </div>
-              <h2 className="mb-2 text-lg font-semibold text-foreground md:text-xl">No milestones yet</h2>
-              <p className="mx-auto max-w-md text-sm text-muted-foreground">
-                Add the first one above — a target of 1 works for something you either did or did not do.
-              </p>
-            </div>
+          ) : undated.length === 0 ? (
+            <EmptyPanel title={dated.length === 0 ? 'No milestones yet' : 'Nothing without dates'}>
+              {dated.length === 0
+                ? 'Add the first one above — a target of 1 works for something you either did or did not do.'
+                : 'Every milestone you have runs between dates. They are further down the page.'}
+            </EmptyPanel>
           ) : visible.length === 0 ? (
-            <div className="rounded-2xl border border-dashed border-border p-10 text-center">
-              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#FF4D8E]/10">
-                <Flag className="h-6 w-6 text-[#FF4D8E]" />
-              </div>
-              <h2 className="mb-2 text-lg font-semibold text-foreground md:text-xl">
-                {filter === 'open' ? 'Nothing open' : 'Nothing done yet'}
-              </h2>
-              <p className="mx-auto mb-6 max-w-md text-sm text-muted-foreground">
-                {filter === 'open'
-                  ? 'Every milestone here is finished. Add another above, or look back at what you got through.'
-                  : 'Finish one and it will move over here.'}
-              </p>
-              <button
-                type="button"
-                onClick={() => setFilter(filter === 'open' ? 'done' : 'open')}
-                className="inline-flex items-center gap-2 rounded-full bg-[#FF4D8E] px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-[#FF4D8E]/25 transition-colors hover:bg-[#FF4D8E]/90"
-              >
-                {filter === 'open' ? `Show the ${summary.completed} done` : `Show the ${openCount} open`}
-              </button>
-            </div>
+            <EmptyPanel
+              title={filter === 'open' ? 'Nothing open' : 'Nothing done yet'}
+              action={
+                <button
+                  type="button"
+                  onClick={() => setFilter(filter === 'open' ? 'done' : 'open')}
+                  className="inline-flex items-center gap-2 rounded-full bg-[#FF4D8E] px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-[#FF4D8E]/25 transition-colors hover:bg-[#FF4D8E]/90"
+                >
+                  {filter === 'open' ? `Show the ${doneCount} done` : `Show the ${openCount} open`}
+                </button>
+              }
+            >
+              {filter === 'open'
+                ? 'Every milestone here is finished. Add another above, or look back at what you got through.'
+                : 'Finish one and it will move over here.'}
+            </EmptyPanel>
           ) : (
             visible.map((milestone, index) => (
               <MilestoneCard key={milestone.id} milestone={milestone} index={index} />
             ))
           )}
         </section>
+
+        <DatedSection dated={dated} hydrated={hydrated} />
       </div>
     </main>
   );
@@ -177,6 +196,27 @@ function Stat({ label, value }: { label: string; value: string }) {
     <div>
       <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
       <p className="text-lg font-semibold text-foreground md:text-xl">{value}</p>
+    </div>
+  );
+}
+
+function EmptyPanel({
+  title,
+  children,
+  action,
+}: {
+  title: string;
+  children: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-2xl border border-dashed border-border p-10 text-center">
+      <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#FF4D8E]/10">
+        <Flag className="h-6 w-6 text-[#FF4D8E]" />
+      </div>
+      <h3 className="mb-2 text-lg font-semibold text-foreground md:text-xl">{title}</h3>
+      <p className={`mx-auto max-w-md text-sm text-muted-foreground ${action ? 'mb-6' : ''}`}>{children}</p>
+      {action}
     </div>
   );
 }
@@ -224,19 +264,168 @@ function StatusChip({
 }
 
 /* -------------------------------------------------------------------------- */
+/*  Between dates                                                             */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The milestones that run from one day to another.
+ *
+ * Nothing about them is stored differently — a start and an end date is the
+ * whole difference, and clearing both dates on a card sends it back up to the
+ * list above. What they get here is a second bar for the clock, so the work
+ * done can be read against the time spent.
+ */
+function DatedSection({ dated, hydrated }: { dated: DatedMilestone[]; hydrated: boolean }) {
+  const overdueCount = useMemo(() => dated.filter((milestone) => isOverdue(milestone)).length, [dated]);
+  const doneCount = useMemo(() => dated.filter(isComplete).length, [dated]);
+
+  return (
+    <section className="mt-10 pb-16 md:mt-14 md:pb-24">
+      <header className="mb-4 border-t border-black/[0.06] pt-8 dark:border-white/[0.08]">
+        <h2 className="flex items-center gap-2 text-xl font-semibold text-foreground md:text-2xl">
+          <CalendarRange className="h-5 w-5 text-[#FF4D8E]" />
+          Between dates
+        </h2>
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          Milestones with a start and an end day. Each one shows how much of its time has gone by next to
+          how much of the work has.
+          {hydrated && dated.length > 0 && (
+            <>
+              {' '}
+              <span className="text-foreground">
+                {dated.length - doneCount} running, {doneCount} done
+                {overdueCount > 0 && `, ${overdueCount} past the end date`}.
+              </span>
+            </>
+          )}
+        </p>
+      </header>
+
+      <MilestoneForm dated />
+
+      <div className="space-y-4">
+        {!hydrated ? (
+          <div className="h-40 animate-pulse rounded-2xl bg-foreground/5" aria-hidden />
+        ) : dated.length === 0 ? (
+          <EmptyPanel title="Nothing on the calendar">
+            Pick a start and an end date above to put a milestone here. Giving an existing one dates from its
+            edit button moves it down too.
+          </EmptyPanel>
+        ) : (
+          dated.map((milestone, index) => (
+            <MilestoneCard key={milestone.id} milestone={milestone} index={index} />
+          ))
+        )}
+      </div>
+    </section>
+  );
+}
+
+type RangeTone = 'upcoming' | 'active' | 'soon' | 'overdue' | 'done';
+
+/**
+ * Same rule as `StatusChip`: a deeper shade of each hue rather than the hue
+ * itself, so small text on a 10% tint of it still clears 4.5:1.
+ */
+const rangeToneClass: Record<RangeTone, string> = {
+  upcoming: 'border-[#3B82F6]/40 bg-[#3B82F6]/10 text-[#1E3A8A] dark:text-[#BFDBFE]',
+  active: 'border-[#6366F1]/40 bg-[#6366F1]/10 text-[#312E81] dark:text-[#C7D2FE]',
+  soon: 'border-[#F59E0B]/50 bg-[#F59E0B]/15 text-[#92400E] dark:text-[#FCD34D]',
+  overdue: 'border-[#EF4444]/40 bg-[#EF4444]/10 text-[#991B1B] dark:text-[#FCA5A5]',
+  done: 'border-[#10B981]/40 bg-[#10B981]/10 text-[#065F46] dark:text-[#6EE7B7]',
+};
+
+function rangeTone(status: RangeStatus, done: boolean): RangeTone {
+  if (done) return 'done';
+  if (status.state === 'ended') return 'overdue';
+  if (status.state === 'upcoming') return 'upcoming';
+  // The last few days read as a warning rather than as business as usual.
+  return status.daysLeft <= 3 ? 'soon' : 'active';
+}
+
+/**
+ * The dates, the countdown and a bar for the time gone.
+ *
+ * `rangeStatus` reads today's date, which is why this is only ever rendered
+ * from a card — the list around it waits for `hydrated`, so the server never
+ * renders a "days left" the browser then disagrees with.
+ */
+function RangeMeter({ milestone, range }: { milestone: Milestone; range: MilestoneRange }) {
+  const done = isComplete(milestone);
+  const status = rangeStatus(range);
+  const tone = rangeTone(status, done);
+
+  return (
+    <div className="mb-3">
+      <div className="mb-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-1.5">
+        <span className="inline-flex items-center gap-1.5 text-sm text-muted-foreground">
+          <CalendarRange className="h-4 w-4 shrink-0" />
+          {formatRange(range)}
+        </span>
+        <span
+          className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium ${rangeToneClass[tone]}`}
+        >
+          {done ? 'Done' : rangeCountdown(status)}
+        </span>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <span className="w-24 shrink-0 text-xs text-muted-foreground">Time {status.timePercent}%</span>
+        <div
+          className="h-1.5 flex-1 overflow-hidden rounded-full bg-black/10 dark:bg-white/10"
+          role="progressbar"
+          aria-valuenow={status.timePercent}
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-label={`Time gone for ${milestone.title}`}
+        >
+          <motion.div
+            // Deliberately not a brand colour: this bar is the clock, and the
+            // pink one underneath is the work. Two pinks would read as one thing.
+            className={`h-full rounded-full ${tone === 'overdue' ? 'bg-[#EF4444]/70' : 'bg-foreground/30'}`}
+            initial={{ width: 0 }}
+            animate={{ width: `${status.timePercent}%` }}
+            transition={{ duration: 0.4, ease: 'easeOut' }}
+          />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Creating                                                                  */
 /* -------------------------------------------------------------------------- */
 
-function NewMilestoneForm() {
+/**
+ * The add form for both sections. With `dated` it asks for a start and an end
+ * day and will not save without both, which is the only thing that decides
+ * which of the two lists the new milestone lands in.
+ */
+function MilestoneForm({ dated = false }: { dated?: boolean }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [target, setTarget] = useState('10');
   const [unit, setUnit] = useState('');
+  const [start, setStart] = useState('');
+  const [end, setEnd] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const handleAdd = useCallback(() => {
-    const created = addMilestone({ title, description, target: Number(target), unit });
-    if (!created) {
+    if (dated && !(start && end)) {
+      setError('Pick both a start and an end date.');
+      return;
+    }
+
+    // Checked here rather than after saving, so a typed-in day that is not real
+    // never becomes a milestone with its dates quietly dropped.
+    const range = dated ? normaliseRange({ start, end }) : null;
+    if (dated && !range) {
+      setError('Those dates did not look like real days.');
+      return;
+    }
+
+    if (!addMilestone({ title, description, target: Number(target), unit, range })) {
       setError('Give the milestone a name first.');
       return;
     }
@@ -245,14 +434,22 @@ function NewMilestoneForm() {
     setDescription('');
     setTarget('10');
     setUnit('');
+    setStart('');
+    setEnd('');
     setError(null);
-  }, [description, target, title, unit]);
+  }, [dated, description, end, start, target, title, unit]);
 
   return (
     <section className={`${cardClass} mb-6`}>
       <div className="mb-4 flex items-center gap-2">
-        <Target className="h-5 w-5 text-[#FF4D8E]" />
-        <h2 className="text-lg font-semibold text-foreground md:text-xl">New milestone</h2>
+        {dated ? (
+          <CalendarRange className="h-5 w-5 text-[#FF4D8E]" />
+        ) : (
+          <Target className="h-5 w-5 text-[#FF4D8E]" />
+        )}
+        <h2 className="text-lg font-semibold text-foreground md:text-xl">
+          {dated ? 'New milestone between dates' : 'New milestone'}
+        </h2>
       </div>
 
       <div className="space-y-3">
@@ -285,6 +482,41 @@ function NewMilestoneForm() {
           aria-label="Milestone notes"
           className={`${fieldClass} block w-full resize-y`}
         />
+
+        {dated && (
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="text-xs text-muted-foreground">
+              Starts
+              <input
+                type="date"
+                value={start}
+                onChange={(e) => {
+                  setStart(e.target.value);
+                  if (error) setError(null);
+                }}
+                aria-label="Start date"
+                className={`${dateFieldClass} mt-1 w-44`}
+              />
+            </label>
+
+            <label className="text-xs text-muted-foreground">
+              Ends
+              <input
+                type="date"
+                value={end}
+                // Stops the picker offering a day before the start; a pair typed
+                // the wrong way round is still swapped when it is saved.
+                min={start || undefined}
+                onChange={(e) => {
+                  setEnd(e.target.value);
+                  if (error) setError(null);
+                }}
+                aria-label="End date"
+                className={`${dateFieldClass} mt-1 w-44`}
+              />
+            </label>
+          </div>
+        )}
 
         <div className="flex flex-wrap items-end gap-3">
           <label className="text-xs text-muted-foreground">
@@ -339,6 +571,9 @@ function MilestoneCard({ milestone, index }: { milestone: Milestone; index: numb
   const [draftDescription, setDraftDescription] = useState(milestone.description);
   const [draftTarget, setDraftTarget] = useState(String(milestone.target));
   const [draftUnit, setDraftUnit] = useState(milestone.unit);
+  const [draftStart, setDraftStart] = useState(milestone.range?.start ?? '');
+  const [draftEnd, setDraftEnd] = useState(milestone.range?.end ?? '');
+  const [editError, setEditError] = useState<string | null>(null);
 
   const percent = milestonePercent(milestone);
   const done = isComplete(milestone);
@@ -350,18 +585,33 @@ function MilestoneCard({ milestone, index }: { milestone: Milestone; index: numb
     setDraftDescription(milestone.description);
     setDraftTarget(String(milestone.target));
     setDraftUnit(milestone.unit);
+    setDraftStart(milestone.range?.start ?? '');
+    setDraftEnd(milestone.range?.end ?? '');
+    setEditError(null);
     setEditing(true);
   }, [milestone]);
 
   const saveEdit = useCallback(() => {
+    // One date on its own is half an answer — clearing both is how you say
+    // "no dates", so filling in only one is treated as unfinished instead.
+    if (Boolean(draftStart) !== Boolean(draftEnd)) {
+      setEditError('Give it both dates, or clear both to take it off the calendar.');
+      return;
+    }
+
     const saved = updateMilestone(milestone.id, {
       title: draftTitle,
       description: draftDescription,
       unit: draftUnit,
       target: Number(draftTarget),
+      range: draftStart && draftEnd ? { start: draftStart, end: draftEnd } : null,
     });
-    if (saved) setEditing(false);
-  }, [draftDescription, draftTarget, draftTitle, draftUnit, milestone.id]);
+
+    if (saved) {
+      setEditError(null);
+      setEditing(false);
+    }
+  }, [draftDescription, draftEnd, draftStart, draftTarget, draftTitle, draftUnit, milestone.id]);
 
   const handleDelete = useCallback(() => {
     if (!window.confirm(`Remove "${milestone.title}"?`)) return;
@@ -395,6 +645,50 @@ function MilestoneCard({ milestone, index }: { milestone: Milestone; index: numb
             aria-label={`Notes for ${milestone.title}`}
             className={`${fieldClass} block w-full resize-y`}
           />
+
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="text-xs text-muted-foreground">
+              Starts
+              <input
+                type="date"
+                value={draftStart}
+                onChange={(e) => {
+                  setDraftStart(e.target.value);
+                  if (editError) setEditError(null);
+                }}
+                aria-label={`Start date for ${milestone.title}`}
+                className={`${dateFieldClass} mt-1 w-44`}
+              />
+            </label>
+            <label className="text-xs text-muted-foreground">
+              Ends
+              <input
+                type="date"
+                value={draftEnd}
+                min={draftStart || undefined}
+                onChange={(e) => {
+                  setDraftEnd(e.target.value);
+                  if (editError) setEditError(null);
+                }}
+                aria-label={`End date for ${milestone.title}`}
+                className={`${dateFieldClass} mt-1 w-44`}
+              />
+            </label>
+            {(draftStart || draftEnd) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDraftStart('');
+                  setDraftEnd('');
+                  setEditError(null);
+                }}
+                className="rounded-full px-3 py-2 text-xs text-muted-foreground transition-colors hover:bg-black/5 hover:text-foreground dark:hover:bg-white/10"
+              >
+                Clear dates
+              </button>
+            )}
+          </div>
+
           <div className="flex flex-wrap items-end gap-3">
             <label className="text-xs text-muted-foreground">
               Target
@@ -437,6 +731,8 @@ function MilestoneCard({ milestone, index }: { milestone: Milestone; index: numb
               </button>
             </span>
           </div>
+
+          {editError && <p className="text-xs text-destructive">{editError}</p>}
         </div>
       ) : (
         <>
@@ -475,6 +771,8 @@ function MilestoneCard({ milestone, index }: { milestone: Milestone; index: numb
               </IconButton>
             </span>
           </div>
+
+          {milestone.range && <RangeMeter milestone={milestone} range={milestone.range} />}
 
           {/* Progress */}
           <div className="mb-3">
