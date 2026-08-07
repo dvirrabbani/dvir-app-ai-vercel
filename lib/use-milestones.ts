@@ -1,7 +1,15 @@
 'use client';
 
 import { useMemo, useSyncExternalStore } from 'react';
-import { MILESTONES_EVENT, MILESTONES_KEY, Milestone, MilestoneSummary, getMilestones, summarise } from '@/lib/milestones';
+import {
+  MILESTONES_EVENT,
+  MILESTONES_KEY,
+  Milestone,
+  MilestoneSummary,
+  getMilestones,
+  sortByCompletion,
+  summarise,
+} from '@/lib/milestones';
 
 function subscribe(onChange: () => void) {
   window.addEventListener(MILESTONES_EVENT, onChange);
@@ -40,7 +48,8 @@ export function useMilestones(): MilestonesState {
       return { milestones: [], summary: { total: 0, completed: 0, averagePercent: 0 }, hydrated: false };
     }
 
-    const milestones = getMilestones();
+    // Unfinished first, done last — so the list reads as what is left to do.
+    const milestones = sortByCompletion(getMilestones());
     return { milestones, summary: summarise(milestones), hydrated: true };
   }, [raw]);
 }

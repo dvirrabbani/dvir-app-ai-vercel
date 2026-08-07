@@ -1,9 +1,9 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { ArrowLeft, Plus, Minus, Trash2, Pencil, Check, Flag, Target } from 'lucide-react';
+import { ArrowLeft, Plus, Minus, Trash2, Pencil, Check, Flag, ListFilter, Target } from 'lucide-react';
 import {
   DESCRIPTION_MAX_LENGTH,
   MAX_TARGET,
@@ -38,8 +38,19 @@ const cardClass =
 const DONE_COLOR = '#10B981';
 const PROGRESS_COLOR = '#FF4D8E';
 
+/** Which half of the list is on screen. Open first — that is the work left. */
+type StatusFilter = 'open' | 'done';
+
 export default function MilestonesPage() {
   const { milestones, summary, hydrated } = useMilestones();
+  const [filter, setFilter] = useState<StatusFilter>('open');
+
+  const visible = useMemo(
+    () => milestones.filter((milestone) => (filter === 'done' ? isComplete(milestone) : !isComplete(milestone))),
+    [filter, milestones]
+  );
+
+  const openCount = summary.total - summary.completed;
 
   return (
     <main className="min-h-screen bg-gradient-to-b from-[#FFF5F8] via-background to-background dark:from-[#1C1C1E] dark:via-[#1C1C1E] dark:to-[#1C1C1E]">
@@ -86,6 +97,31 @@ export default function MilestonesPage() {
 
         <NewMilestoneForm />
 
+        {/* Filter */}
+        {hydrated && summary.total > 0 && (
+          <section className={`${cardClass} mb-6 flex flex-wrap items-center gap-x-4 gap-y-3 py-4`}>
+            <h2 className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              <ListFilter className="h-3.5 w-3.5" />
+              Show
+            </h2>
+            <div className="flex flex-wrap gap-2">
+              <StatusChip
+                label="Open"
+                count={openCount}
+                active={filter === 'open'}
+                onClick={() => setFilter('open')}
+              />
+              <StatusChip
+                label="Done"
+                count={summary.completed}
+                tone="done"
+                active={filter === 'done'}
+                onClick={() => setFilter('done')}
+              />
+            </div>
+          </section>
+        )}
+
         {/* List */}
         <section className="space-y-4 pb-16 md:pb-24">
           {!hydrated ? (
@@ -104,8 +140,29 @@ export default function MilestonesPage() {
                 Add the first one above — a target of 1 works for something you either did or did not do.
               </p>
             </div>
+          ) : visible.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-border p-10 text-center">
+              <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-[#FF4D8E]/10">
+                <Flag className="h-6 w-6 text-[#FF4D8E]" />
+              </div>
+              <h2 className="mb-2 text-lg font-semibold text-foreground md:text-xl">
+                {filter === 'open' ? 'Nothing open' : 'Nothing done yet'}
+              </h2>
+              <p className="mx-auto mb-6 max-w-md text-sm text-muted-foreground">
+                {filter === 'open'
+                  ? 'Every milestone here is finished. Add another above, or look back at what you got through.'
+                  : 'Finish one and it will move over here.'}
+              </p>
+              <button
+                type="button"
+                onClick={() => setFilter(filter === 'open' ? 'done' : 'open')}
+                className="inline-flex items-center gap-2 rounded-full bg-[#FF4D8E] px-5 py-2.5 text-sm font-medium text-white shadow-lg shadow-[#FF4D8E]/25 transition-colors hover:bg-[#FF4D8E]/90"
+              >
+                {filter === 'open' ? `Show the ${summary.completed} done` : `Show the ${openCount} open`}
+              </button>
+            </div>
           ) : (
-            milestones.map((milestone, index) => (
+            visible.map((milestone, index) => (
               <MilestoneCard key={milestone.id} milestone={milestone} index={index} />
             ))
           )}
@@ -121,6 +178,48 @@ function Stat({ label, value }: { label: string; value: string }) {
       <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
       <p className="text-lg font-semibold text-foreground md:text-xl">{value}</p>
     </div>
+  );
+}
+
+/**
+ * One side of the open/done switch.
+ *
+ * The active label is a deeper shade of its own hue rather than the brand pink
+ * or `DONE_COLOR` themselves — those sit at about 2.3:1 on their own 10% tint,
+ * under the 4.5:1 small text needs. The tint and border still carry the colour.
+ */
+function StatusChip({
+  label,
+  count,
+  tone = 'open',
+  active,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  tone?: 'open' | 'done';
+  active: boolean;
+  onClick: () => void;
+}) {
+  const activeClass =
+    tone === 'done'
+      ? 'border-[#10B981]/60 bg-[#10B981]/10 text-[#065F46] dark:text-[#6EE7B7]'
+      : 'border-[#FF4D8E]/60 bg-[#FF4D8E]/10 text-[#A3123F] dark:text-[#FFB3CD]';
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-pressed={active}
+      className={`inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-sm transition-colors ${
+        active
+          ? activeClass
+          : 'border-gray-200 text-muted-foreground hover:border-[#FF4D8E]/40 hover:text-foreground dark:border-white/10'
+      }`}
+    >
+      {label}
+      <span className={active ? 'text-xs' : 'text-xs text-muted-foreground'}>{count}</span>
+    </button>
   );
 }
 
