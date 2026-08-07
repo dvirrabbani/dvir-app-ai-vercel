@@ -13,7 +13,6 @@ import { discardUnusedImages } from '@/lib/image-folder';
 import { prepareLocalImages, useLocalImages } from '@/lib/use-local-images';
 import {
   LocalBlogPost,
-  POST_CATEGORIES,
   PostDraft,
   applyAutoDirection,
   clearDraft,
@@ -58,7 +57,8 @@ export function PostEditor({ post, draft }: PostEditorProps) {
 
   const [title, setTitle] = useState(initial?.title ?? '');
   const [excerpt, setExcerpt] = useState(initial?.excerpt ?? '');
-  const [category, setCategory] = useState(initial?.category || POST_CATEGORIES[0]);
+  // Empty until the categories are read out of storage; the picker fills it in.
+  const [category, setCategory] = useState(initial?.category ?? '');
   const [authorName, setAuthorName] = useState(post?.author.name ?? draft?.authorName ?? '');
   const [coverImage, setCoverImage] = useState(post?.coverImage ?? draft?.coverImage ?? '');
   const [coverPosition, setCoverPosition] = useState<CoverPosition>(
@@ -116,7 +116,7 @@ export function PostEditor({ post, draft }: PostEditorProps) {
     editorApi.current?.setHtml('');
     setTitle('');
     setExcerpt('');
-    setCategory(POST_CATEGORIES[0]);
+    setCategory('');
     setErrors({});
     setDismissedRestore(true);
     if (draftStatusRef.current) draftStatusRef.current.textContent = '';
