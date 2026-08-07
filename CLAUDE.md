@@ -34,8 +34,16 @@ Each feature is a matched pair of files:
 | `local-posts.ts` (+ `blog.ts` seed data) | `use-local-posts.ts` | `app/blog/**` |
 | `poll.ts` | `use-poll.ts` | `app/poll/**` |
 | `calendar.ts` | `use-calendar.ts` | `app/calendar` |
+| `routines.ts` | `use-routines.ts` | `app/calendar` |
 | `milestones.ts` | `use-milestones.ts` | `app/milestones` |
+| `milestone-cycles.ts` | `use-milestone-cycles.ts` | `app/milestones` |
 | `contact.ts` | `use-contact.ts` | `app/contact` |
+
+Two of those are about repeating work and are easy to mix up. `routines.ts` is the
+calendar's open-ended habits — a cadence, no end date, nothing to finish.
+`milestone-cycles.ts` is the milestones page's bounded version — a start and an end
+date, a cycle of a week/fortnight/month repeating between them, and a percentage
+that can reach 100.
 
 **The storage module** owns the record types, the `'dvir-<feature>:…'` storage keys, a `<feature>-changed` custom event name, runtime type guards, and every read/write helper. Rules it follows everywhere, which new code must follow too:
 
