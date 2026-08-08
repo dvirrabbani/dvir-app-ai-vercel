@@ -75,6 +75,35 @@ export function IconButton({
   );
 }
 
+/**
+ * The plus and minus beside a count. Smaller than `IconButton`, which is sized
+ * for the corner of a card rather than the end of a list row.
+ */
+export function StepButton({
+  title,
+  onClick,
+  disabled,
+  children,
+}: {
+  title: string;
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      title={title}
+      aria-label={title}
+      onClick={onClick}
+      disabled={disabled}
+      className="inline-flex h-6 w-6 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-black/5 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 dark:hover:bg-white/10"
+    >
+      {children}
+    </button>
+  );
+}
+
 export type RangeTone = 'upcoming' | 'active' | 'soon' | 'overdue' | 'done';
 
 /**
