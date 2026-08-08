@@ -777,3 +777,21 @@ export function dayLabel(item: Pick<MilestoneCycle, 'cycle' | 'range'>, day: num
 export function formatDayKey(key: string): string {
   return fromDateKey(key).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
+
+/**
+ * "3/8 – 13/9": the range with the month as a number, for the week columns,
+ * which have nowhere near the width for "Aug 3 – Sep 13, 2026".
+ *
+ * Day first, then month. The two-digit year only shows up when the range
+ * crosses one, where "20/12 – 15/1" would otherwise read as running backwards.
+ */
+export function formatShortRange(range: MilestoneRange): string {
+  const start = fromDateKey(range.start);
+  const end = fromDateKey(range.end);
+  const sameYear = start.getFullYear() === end.getFullYear();
+
+  const short = (date: Date) =>
+    `${date.getDate()}/${date.getMonth() + 1}${sameYear ? '' : `/${`${date.getFullYear()}`.slice(2)}`}`;
+
+  return `${short(start)} – ${short(end)}`;
+}

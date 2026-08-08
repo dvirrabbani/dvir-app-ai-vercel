@@ -125,11 +125,13 @@ export function getMilestones(): Milestone[] {
     const parsed: unknown = JSON.parse(raw);
     if (!Array.isArray(parsed)) return [];
 
-    // Creation order, so a milestone does not jump around as its progress moves.
+    // Newest first, so the one just added is the one at the top of the list.
+    // Creation order either way, which is what keeps a milestone from jumping
+    // around as its progress moves.
     return parsed
       .filter(isMilestone)
       .map(normalise)
-      .sort((a, b) => (a.createdAt ?? '').localeCompare(b.createdAt ?? ''));
+      .sort((a, b) => (b.createdAt ?? '').localeCompare(a.createdAt ?? ''));
   } catch {
     return [];
   }
@@ -355,8 +357,8 @@ export function isComplete(milestone: Milestone): boolean {
 
 /**
  * Display order: the ones still going first, the finished ones after, each group
- * left in the creation order `getMilestones` returns (sort is stable). Only for
- * showing a list — what gets stored stays in creation order.
+ * left in the newest-first order `getMilestones` returns (sort is stable). Only
+ * for showing a list — what gets stored keeps whatever order it was written in.
  */
 export function sortByCompletion<T extends Milestone>(milestones: T[]): T[] {
   return [...milestones].sort((a, b) => Number(isComplete(a)) - Number(isComplete(b)));

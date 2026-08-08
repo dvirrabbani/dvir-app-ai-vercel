@@ -37,6 +37,7 @@ Each feature is a matched pair of files:
 | `routines.ts` | `use-routines.ts` | `app/calendar` |
 | `milestones.ts` | `use-milestones.ts` | `app/milestones` |
 | `milestone-cycles.ts` | `use-milestone-cycles.ts` | `app/milestones` |
+| `goals.ts` | `use-goals.ts` | `app/milestones` |
 | `contact.ts` | `use-contact.ts` | `app/contact` |
 
 Two of those are about repeating work and are easy to mix up. `routines.ts` is the
@@ -44,6 +45,14 @@ calendar's open-ended habits — a cadence, no end date, nothing to finish.
 `milestone-cycles.ts` is the milestones page's bounded version — a start and an end
 date, a cycle of a week/fortnight/month repeating between them, and a percentage
 that can reach 100.
+
+Three of them carry dates, which is the other easy mix-up. A **dated milestone**
+(`milestones.ts`, `range`) runs *between* two days and shows the work done against
+the time spent. A **cycle** (`milestone-cycles.ts`) repeats between two days. A
+**goal** (`goals.ts`) is a single day with no work attached at all: it counts the
+months, weeks and days left until then, and is finished by ticking it, not by
+filling a bar. `countdownTo` there is the calendar-month arithmetic — it clamps
+short months, so 31 Jan + 1 month is 28 Feb rather than 3 Mar.
 
 **The storage module** owns the record types, the `'dvir-<feature>:…'` storage keys, a `<feature>-changed` custom event name, runtime type guards, and every read/write helper. Rules it follows everywhere, which new code must follow too:
 
