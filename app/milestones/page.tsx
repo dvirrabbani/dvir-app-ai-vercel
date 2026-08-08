@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { ArrowLeft, CalendarRange, Plus, Minus, Trash2, Pencil, Check, ListFilter, Target } from 'lucide-react';
+import { ArrowLeft, CalendarRange, Plus, Minus, Trash2, Pencil, Check, ListFilter, Target, X } from 'lucide-react';
 import {
   DESCRIPTION_MAX_LENGTH,
   DatedMilestone,
@@ -31,7 +31,9 @@ import {
   updateMilestone,
 } from '@/lib/milestones';
 import { useMilestones } from '@/lib/use-milestones';
+import { CycleWeekPanel } from '@/components/milestones/cycle-week-panel';
 import { CyclesSection } from '@/components/milestones/cycles-section';
+import { GoalsSection } from '@/components/milestones/goals-section';
 import {
   DONE_COLOR,
   EmptyPanel,
@@ -49,6 +51,9 @@ type StatusFilter = 'open' | 'done';
 export default function MilestonesPage() {
   const { dated, undated, summary, hydrated } = useMilestones();
   const [filter, setFilter] = useState<StatusFilter>('open');
+  // The add form is folded away until it is asked for, so the page opens on the
+  // milestones rather than on an empty form.
+  const [creating, setCreating] = useState(false);
 
   const visible = useMemo(
     () => undated.filter((milestone) => (filter === 'done' ? isComplete(milestone) : !isComplete(milestone))),
@@ -82,6 +87,11 @@ export default function MilestonesPage() {
           </p>
         </motion.header>
 
+        {/* The week the milestones on a cycle add up to. First on the page
+            because it is what gets read daily; it renders nothing at all until
+            there is a milestone on a cycle to fill it. */}
+        <CycleWeekPanel />
+
         {/* Summary — across both sections, since it is the whole page in a line */}
         {hydrated && summary.total > 0 && (
           <section className={`${cardClass} mb-6`}>
@@ -102,31 +112,58 @@ export default function MilestonesPage() {
           </section>
         )}
 
-        <MilestoneForm />
-
-        {/* Filter */}
-        {hydrated && undated.length > 0 && (
+        {/* Filter, and the way in to the add form. The chips need something to
+            count, but the button is here from the first visit — it is the only
+            way to reach the form. */}
+        {hydrated && (
           <section className={`${cardClass} mb-6 flex flex-wrap items-center gap-x-4 gap-y-3 py-4`}>
-            <h2 className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              <ListFilter className="h-3.5 w-3.5" />
-              Show
-            </h2>
-            <div className="flex flex-wrap gap-2">
-              <StatusChip
-                label="Open"
-                count={openCount}
-                active={filter === 'open'}
-                onClick={() => setFilter('open')}
-              />
-              <StatusChip
-                label="Done"
-                count={doneCount}
-                tone="done"
-                active={filter === 'done'}
-                onClick={() => setFilter('done')}
-              />
-            </div>
+            {undated.length > 0 && (
+              <>
+                <h2 className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
+                  <ListFilter className="h-3.5 w-3.5" />
+                  Show
+                </h2>
+                <div className="flex flex-wrap gap-2">
+                  <StatusChip
+                    label="Open"
+                    count={openCount}
+                    active={filter === 'open'}
+                    onClick={() => setFilter('open')}
+                  />
+                  <StatusChip
+                    label="Done"
+                    count={doneCount}
+                    tone="done"
+                    active={filter === 'done'}
+                    onClick={() => setFilter('done')}
+                  />
+                </div>
+              </>
+            )}
+
+            <button
+              type="button"
+              onClick={() => setCreating((open) => !open)}
+              aria-expanded={creating}
+              className="ms-auto inline-flex items-center gap-2 rounded-full bg-[#FF4D8E] px-4 py-2 text-sm font-medium text-white shadow-lg shadow-[#FF4D8E]/25 transition-colors hover:bg-[#FF4D8E]/90"
+            >
+              {creating ? <X className="h-4 w-4" /> : <Plus className="h-4 w-4" />}
+              {creating ? 'Close' : 'New milestone'}
+            </button>
           </section>
+        )}
+
+        {/* The form the button opens, right where the new milestone will land. */}
+        {creating && (
+          <MilestoneForm
+            autoFocus
+            onCreated={() => {
+              // A new one is never finished, so leaving the done half showing
+              // would hide the thing that was just added.
+              setFilter('open');
+              setCreating(false);
+            }}
+          />
         )}
 
         {/* Undated list */}
@@ -140,7 +177,7 @@ export default function MilestonesPage() {
           ) : undated.length === 0 ? (
             <EmptyPanel title={dated.length === 0 ? 'No milestones yet' : 'Nothing without dates'}>
               {dated.length === 0
-                ? 'Add the first one above — a target of 1 works for something you either did or did not do.'
+                ? 'Add the first one with the New milestone button above — a target of 1 works for something you either did or did not do.'
                 : 'Every milestone you have runs between dates. They are further down the page.'}
             </EmptyPanel>
           ) : visible.length === 0 ? (
@@ -157,7 +194,7 @@ export default function MilestonesPage() {
               }
             >
               {filter === 'open'
-                ? 'Every milestone here is finished. Add another above, or look back at what you got through.'
+                ? 'Every milestone here is finished. Add another with the button above, or look back at what you got through.'
                 : 'Finish one and it will move over here.'}
             </EmptyPanel>
           ) : (
@@ -168,6 +205,10 @@ export default function MilestonesPage() {
         </section>
 
         <DatedSection dated={dated} hydrated={hydrated} />
+
+        {/* Deadline-shaped like the section above it, but counting the days
+            rather than the work, so the two sit next to each other. */}
+        <GoalsSection />
 
         <CyclesSection />
       </div>
@@ -293,7 +334,17 @@ function DatedSection({ dated, hydrated }: { dated: DatedMilestone[]; hydrated: 
  * day and will not save without both, which is the only thing that decides
  * which of the two lists the new milestone lands in.
  */
-function MilestoneForm({ dated = false }: { dated?: boolean }) {
+function MilestoneForm({
+  dated = false,
+  autoFocus = false,
+  onCreated,
+}: {
+  dated?: boolean;
+  /** For the folded-away copy, so opening it puts the cursor in the name. */
+  autoFocus?: boolean;
+  /** Called once a milestone has actually been saved. */
+  onCreated?: () => void;
+}) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [target, setTarget] = useState('10');
@@ -328,7 +379,8 @@ function MilestoneForm({ dated = false }: { dated?: boolean }) {
     setStart('');
     setEnd('');
     setError(null);
-  }, [dated, description, end, start, target, title, unit]);
+    onCreated?.();
+  }, [dated, description, end, onCreated, start, target, title, unit]);
 
   return (
     <section className={`${cardClass} mb-6`}>
@@ -357,6 +409,7 @@ function MilestoneForm({ dated = false }: { dated?: boolean }) {
             }
           }}
           dir="auto"
+          autoFocus={autoFocus}
           maxLength={TITLE_MAX_LENGTH}
           placeholder="What are you working towards?"
           aria-label="Milestone name"
@@ -604,26 +657,64 @@ function MilestoneCard({ milestone, index }: { milestone: Milestone; index: numb
                 className={`${fieldClass} mt-1 w-40`}
               />
             </label>
-            <span className="ml-auto flex gap-2">
-              <button
-                type="button"
-                onClick={saveEdit}
-                className="inline-flex items-center gap-1.5 rounded-full bg-[#FF4D8E] px-4 py-2 text-xs font-medium text-white hover:bg-[#FF4D8E]/90"
-              >
-                <Check className="h-3.5 w-3.5" />
-                Save
-              </button>
-              <button
-                type="button"
-                onClick={() => setEditing(false)}
-                className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10"
-              >
-                Cancel
-              </button>
-            </span>
           </div>
 
           {editError && <p className="text-xs text-destructive">{editError}</p>}
+
+          {/* The counter, only while the tasks are not the ones saying how far
+              along this is. Like the tasks below it, it writes straight away —
+              Cancel puts back the fields above, not these. */}
+          {!progress.byTasks && (
+            <div className="flex flex-wrap items-center gap-2 border-t border-black/[0.06] pt-3 dark:border-white/[0.08]">
+              <span className="text-xs text-muted-foreground">Progress</span>
+
+              <IconButton
+                title={`Decrease ${milestone.title}`}
+                onClick={() => stepProgress(milestone.id, -1)}
+                disabled={milestone.current <= 0}
+              >
+                <Minus className="h-4 w-4" />
+              </IconButton>
+
+              <input
+                type="number"
+                min={0}
+                max={milestone.target}
+                value={milestone.current}
+                onChange={(e) => setProgress(milestone.id, Number(e.target.value))}
+                aria-label={`Progress for ${milestone.title}`}
+                className={`${fieldClass} w-24 text-center`}
+              />
+
+              <IconButton
+                title={`Increase ${milestone.title}`}
+                onClick={() => stepProgress(milestone.id, 1)}
+                disabled={done}
+              >
+                <Plus className="h-4 w-4" />
+              </IconButton>
+            </div>
+          )}
+
+          <TaskList milestone={milestone} editable />
+
+          <div className="flex flex-wrap justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setEditing(false)}
+              className="inline-flex items-center gap-1.5 rounded-full px-4 py-2 text-xs text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={saveEdit}
+              className="inline-flex items-center gap-1.5 rounded-full bg-[#FF4D8E] px-4 py-2 text-xs font-medium text-white hover:bg-[#FF4D8E]/90"
+            >
+              <Check className="h-3.5 w-3.5" />
+              Save
+            </button>
+          </div>
         </div>
       ) : (
         <>
@@ -696,40 +787,9 @@ function MilestoneCard({ milestone, index }: { milestone: Milestone; index: numb
 
           <TaskList milestone={milestone} />
 
-          {/* Controls */}
+          {/* Controls. Only the one-tap ones — the counter and the task field
+              are behind the edit button, so a card at rest reads as a card. */}
           <div className="mt-3 flex flex-wrap items-center gap-2">
-            {/* The counter only appears while the tasks are not the ones saying
-                how far along this is. */}
-            {!progress.byTasks && (
-              <>
-                <IconButton
-                  title={`Decrease ${milestone.title}`}
-                  onClick={() => stepProgress(milestone.id, -1)}
-                  disabled={milestone.current <= 0}
-                >
-                  <Minus className="h-4 w-4" />
-                </IconButton>
-
-                <input
-                  type="number"
-                  min={0}
-                  max={milestone.target}
-                  value={milestone.current}
-                  onChange={(e) => setProgress(milestone.id, Number(e.target.value))}
-                  aria-label={`Progress for ${milestone.title}`}
-                  className={`${fieldClass} w-24 text-center`}
-                />
-
-                <IconButton
-                  title={`Increase ${milestone.title}`}
-                  onClick={() => stepProgress(milestone.id, 1)}
-                  disabled={done}
-                >
-                  <Plus className="h-4 w-4" />
-                </IconButton>
-              </>
-            )}
-
             <button
               type="button"
               onClick={() => {
@@ -751,7 +811,16 @@ function MilestoneCard({ milestone, index }: { milestone: Milestone; index: numb
 /*  Tasks                                                                     */
 /* -------------------------------------------------------------------------- */
 
-function TaskRow({ milestone, task }: { milestone: Milestone; task: MilestoneTask }) {
+function TaskRow({
+  milestone,
+  task,
+  editable,
+}: {
+  milestone: Milestone;
+  task: MilestoneTask;
+  /** Renaming and removing are card-edit work; ticking off never is. */
+  editable: boolean;
+}) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(task.title);
 
@@ -800,25 +869,38 @@ function TaskRow({ milestone, task }: { milestone: Milestone; task: MilestoneTas
         <Check className="h-3.5 w-3.5" />
       </button>
 
-      <button
-        type="button"
-        onClick={() => setEditing(true)}
-        dir="auto"
-        title={`Edit ${task.title}`}
-        className={`min-w-0 flex-1 truncate text-start text-sm transition-colors hover:text-[#FF4D8E] ${
-          task.done ? 'text-muted-foreground line-through' : 'text-foreground'
-        }`}
-      >
-        {task.title}
-      </button>
+      {editable ? (
+        <button
+          type="button"
+          onClick={() => setEditing(true)}
+          dir="auto"
+          title={`Edit ${task.title}`}
+          className={`min-w-0 flex-1 truncate text-start text-sm transition-colors hover:text-[#FF4D8E] ${
+            task.done ? 'text-muted-foreground line-through' : 'text-foreground'
+          }`}
+        >
+          {task.title}
+        </button>
+      ) : (
+        <span
+          dir="auto"
+          className={`min-w-0 flex-1 truncate text-sm ${
+            task.done ? 'text-muted-foreground line-through' : 'text-foreground'
+          }`}
+        >
+          {task.title}
+        </span>
+      )}
 
-      <IconButton
-        title={`Remove ${task.title}`}
-        destructive
-        onClick={() => deleteMilestoneTask(milestone.id, task.id)}
-      >
-        <Trash2 className="h-4 w-4" />
-      </IconButton>
+      {editable && (
+        <IconButton
+          title={`Remove ${task.title}`}
+          destructive
+          onClick={() => deleteMilestoneTask(milestone.id, task.id)}
+        >
+          <Trash2 className="h-4 w-4" />
+        </IconButton>
+      )}
     </li>
   );
 }
@@ -827,8 +909,12 @@ function TaskRow({ milestone, task }: { milestone: Milestone; task: MilestoneTas
  * The pieces a milestone breaks into. While there are any, they are what the
  * progress bar counts — the note under the field says so, since the counter
  * above disappears when the first one is added.
+ *
+ * Without `editable` this is only the ticking list: the field that adds a task
+ * lives behind the card's edit button, along with renaming and removing. A card
+ * with no tasks then has nothing to show here and renders nothing at all.
  */
-function TaskList({ milestone }: { milestone: Milestone }) {
+function TaskList({ milestone, editable = false }: { milestone: Milestone; editable?: boolean }) {
   const [title, setTitle] = useState('');
   const [error, setError] = useState<string | null>(null);
 
@@ -843,12 +929,26 @@ function TaskList({ milestone }: { milestone: Milestone }) {
     setError(null);
   }, [full, milestone.id, title]);
 
+  if (!editable) {
+    if (milestone.tasks.length === 0) return null;
+
+    return (
+      <div className="mt-4 border-t border-black/[0.06] pt-3 dark:border-white/[0.08]">
+        <ul className="space-y-1.5">
+          {milestone.tasks.map((task) => (
+            <TaskRow key={task.id} milestone={milestone} task={task} editable={false} />
+          ))}
+        </ul>
+      </div>
+    );
+  }
+
   return (
     <div className="mt-4 border-t border-black/[0.06] pt-3 dark:border-white/[0.08]">
       {milestone.tasks.length > 0 && (
         <ul className="mb-2 space-y-1.5">
           {milestone.tasks.map((task) => (
-            <TaskRow key={task.id} milestone={milestone} task={task} />
+            <TaskRow key={task.id} milestone={milestone} task={task} editable />
           ))}
         </ul>
       )}
