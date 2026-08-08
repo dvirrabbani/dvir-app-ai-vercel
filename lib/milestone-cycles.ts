@@ -18,8 +18,8 @@
 import { fromDateKey, isValidDateKey, toDateKey, WEEKDAY_LABELS } from '@/lib/calendar';
 import { MilestoneRange, daysBetween, normaliseRange } from '@/lib/milestones';
 // Borrowed rather than written again — the same "1st, 2nd, 23rd" the calendar's
-// routines already say.
-import { ordinal } from '@/lib/routines';
+// routines already say, and the same reckoning of which week a day sits in.
+import { ordinal, weekDays } from '@/lib/routines';
 
 /** How often the same set of days comes round again. */
 export type CycleKind = 'week' | 'fortnight' | 'month';
@@ -610,6 +610,79 @@ export function planForTurn(item: MilestoneCycle, turn: CycleTurn): CycleDay[] {
 /** What is due on one day, which is what the section's "today" line reads from. */
 export function dueOn(item: MilestoneCycle, key: string): CycleTask[] {
   return item.tasks.filter((task) => occursOn(item, task, key));
+}
+
+/* -------------------------------------------------------------------------- */
+/*  The week across every milestone                                           */
+/* -------------------------------------------------------------------------- */
+
+/** What one milestone asks for on one day of the week view. */
+export interface WeekGroup {
+  cycle: MilestoneCycle;
+  tasks: CycleTask[];
+  done: number;
+  total: number;
+}
+
+export interface WeekDay {
+  key: string;
+  /** Sun–Sat, so a column can be headed without re-reading the date. */
+  weekday: string;
+  /** The day of the month, which is the only number the column shows. */
+  dayOfMonth: number;
+  isToday: boolean;
+  /** One entry per milestone with anything due that day, in the list's order. */
+  groups: WeekGroup[];
+  done: number;
+  total: number;
+}
+
+/** The seven days of the week holding a day key, Sunday first. */
+export function weekOf(today: string): string[] {
+  if (!isValidDateKey(today)) return [];
+  return weekDays(fromDateKey(today)).map(toDateKey);
+}
+
+/**
+ * The current week laid out day by day, gathering what every milestone asks for
+ * rather than one card's worth.
+ *
+ * A milestone contributes nothing to a day outside its own range, so the ones
+ * not yet started and the ones already over drop out on their own — there is
+ * nothing to filter beforehand.
+ */
+export function weekPlan(items: MilestoneCycle[], today: string): WeekDay[] {
+  return weekOf(today).map((key) => {
+    const groups: WeekGroup[] = [];
+    let dayDone = 0;
+    let dayTotal = 0;
+
+    for (const item of items) {
+      const tasks = dueOn(item, key);
+      if (tasks.length === 0) continue;
+
+      let done = 0;
+      let total = 0;
+      for (const task of tasks) {
+        total += task.target;
+        done += countFor(task, key);
+      }
+
+      groups.push({ cycle: item, tasks, done, total });
+      dayDone += done;
+      dayTotal += total;
+    }
+
+    return {
+      key,
+      weekday: WEEKDAY_LABELS[fromDateKey(key).getDay()],
+      dayOfMonth: fromDateKey(key).getDate(),
+      isToday: key === today,
+      groups,
+      done: dayDone,
+      total: dayTotal,
+    };
+  });
 }
 
 /* -------------------------------------------------------------------------- */

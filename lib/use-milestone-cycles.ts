@@ -50,6 +50,8 @@ export interface CyclesSummary {
 interface CyclesState {
   cycles: MilestoneCycle[];
   summary: CyclesSummary;
+  /** Today as a day key, empty until hydrated so the server render matches. */
+  today: string;
   /** False on the server and during hydration, so callers can show a placeholder. */
   hydrated: boolean;
 }
@@ -69,7 +71,7 @@ export function useMilestoneCycles(): CyclesState {
 
   return useMemo(() => {
     if (raw === null) {
-      return { cycles: [], summary: EMPTY_SUMMARY, hydrated: false };
+      return { cycles: [], summary: EMPTY_SUMMARY, today: '', hydrated: false };
     }
 
     // Read once here rather than per item, so one render cannot straddle
@@ -104,6 +106,7 @@ export function useMilestoneCycles(): CyclesState {
     return {
       cycles,
       summary: { total: stored.length, active, dueToday, doneToday },
+      today,
       hydrated: true,
     };
   }, [raw]);
