@@ -23,6 +23,7 @@ const navLinks = [
   { href: '/blog', label: 'Blog' },
   { href: '/poll', label: 'Poll' },
   { href: '/milestones', label: 'Milestones' },
+  { href: '/backup', label: 'Data' },
   { href: '/contact', label: 'Contact' },
 ];
 

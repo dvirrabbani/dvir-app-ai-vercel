@@ -42,6 +42,13 @@ Each feature is a matched pair of files:
 | `milestone-cycles.ts` | `use-milestone-cycles.ts` | `app/milestones` |
 | `goals.ts` | `use-goals.ts` | `app/milestones` |
 | `contact.ts` | `use-contact.ts` | `app/contact` |
+| `backup.ts` | `use-backup.ts` | `app/backup` |
+
+`backup.ts` is the odd one out: it stores nothing of its own. It is a registry of
+every *other* feature's keys and events, so a browser's whole store can be written
+to one JSON file and read back on another device — the only way two devices share
+anything, there being no server. Adding a feature means adding it to
+`BACKUP_FEATURES` too, or it silently stops travelling.
 
 Two of those are about repeating work and are easy to mix up. `routines.ts` is the
 routines page's open-ended habits — a cadence, no end date, nothing to finish.
