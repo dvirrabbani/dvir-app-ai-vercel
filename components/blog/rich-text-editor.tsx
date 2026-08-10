@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import {
   Bold,
   Italic,
@@ -30,6 +31,8 @@ import {
   TableColumnsSplit,
   BetweenHorizonalStart,
   Check,
+  Hash,
+  Search,
   X,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -58,6 +61,36 @@ import {
 import { LOCAL_IMAGE_ATTR, prepareLocalImages, restoreLocalImages, useLocalImages } from '@/lib/use-local-images';
 
 const EMPTY_PARAGRAPH = '<p><br></p>';
+
+/**
+ * Whether a new table's header row counts itself, and from which end.
+ *
+ * The count always leaves the first header cell empty — that is the stub the row
+ * labels live under — and numbers the rest 1..n. `from-left` puts the 1 next to
+ * the stub and counts rightwards; `from-right` puts the 1 in the final column
+ * and counts back towards the stub, which is what a Hebrew table wants.
+ */
+export type HeaderNumbering = 'none' | 'from-left' | 'from-right';
+
+/** A numbered table needs the stub column plus at least one counted column. */
+const MIN_NUMBERED_COLUMNS = 2;
+const MAX_TABLE_COLUMNS = 10;
+
+/**
+ * The header row a given width and mode produces, as plain strings — `''` is the
+ * empty stub. The insert and the preview in the toolbar both read from here, so
+ * what the bar promises and what lands in the post cannot drift apart.
+ */
+function headerLabels(columns: number, numbering: HeaderNumbering): string[] {
+  const least = numbering === 'none' ? 1 : MIN_NUMBERED_COLUMNS;
+  const total = Math.min(Math.max(Math.trunc(columns) || 0, least), MAX_TABLE_COLUMNS);
+  const counted = total - 1;
+
+  return Array.from({ length: total }, (_, index) => {
+    if (numbering === 'none' || index === 0) return '';
+    return String(numbering === 'from-left' ? index : counted - index + 1);
+  });
+}
 
 /** Takes the scrolling strip with it, rather than leaving an empty one behind. */
 function removeTable(table: HTMLTableElement) {
@@ -110,6 +143,192 @@ function escapeHtml(text: string): string {
 }
 
 const STATEFUL_COMMANDS = ['bold', 'italic', 'underline', 'strikeThrough', 'insertUnorderedList', 'insertOrderedList'];
+
+/* -------------------------------------------------------------------------- */
+/*  Slash menu                                                                */
+/* -------------------------------------------------------------------------- */
+
+interface SlashItem {
+  /** Dispatch key for `runSlashItem`; the marks use their execCommand name. */
+  id: string;
+  label: string;
+  hint: string;
+  /** Extra words the query matches against, so `/line` finds the divider. */
+  keywords: string;
+  Icon: React.ComponentType<{ className?: string }>;
+}
+
+/** Ordered by how often a post reaches for them: an empty query shows them all. */
+const SLASH_ITEMS: SlashItem[] = [
+  { id: 'h2', label: 'Heading', hint: 'Large section title', keywords: 'h2 title big', Icon: Heading2 },
+  { id: 'h3', label: 'Subheading', hint: 'Smaller section title', keywords: 'h3 title small', Icon: Heading3 },
+  { id: 'ul', label: 'Bulleted list', hint: 'A list of points', keywords: 'ul bullet unordered dot', Icon: List },
+  { id: 'ol', label: 'Numbered list', hint: 'A list in order', keywords: 'ol number ordered', Icon: ListOrdered },
+  { id: 'blockquote', label: 'Quote', hint: 'Set text apart', keywords: 'blockquote citation', Icon: Quote },
+  {
+    id: 'hr',
+    label: 'Divider',
+    hint: 'A horizontal line',
+    keywords: 'hr rule line separator horizontal break',
+    Icon: Minus,
+  },
+  { id: 'table', label: 'Table', hint: 'Rows and columns', keywords: 'grid cells', Icon: Table },
+  {
+    id: 'table-numbered',
+    label: 'Numbered table',
+    hint: 'Header counts 1, 2, 3…',
+    keywords: 'grid cells numbered counting count header series question',
+    Icon: Hash,
+  },
+  { id: 'image', label: 'Image', hint: 'From a URL', keywords: 'picture photo img', Icon: ImagePlus },
+  { id: 'p', label: 'Paragraph', hint: 'Plain text', keywords: 'text body normal', Icon: Pilcrow },
+  { id: 'bold', label: 'Bold', hint: 'Start bold text', keywords: 'strong b', Icon: Bold },
+  { id: 'italic', label: 'Italic', hint: 'Start italic text', keywords: 'em i', Icon: Italic },
+  { id: 'underline', label: 'Underline', hint: 'Start underlined text', keywords: 'u', Icon: Underline },
+  { id: 'strikeThrough', label: 'Strikethrough', hint: 'Start struck-through text', keywords: 's strike', Icon: Strikethrough },
+];
+
+// Used to guess the menu's height before it exists, which is what decides
+// whether it hangs below the caret or sits above it.
+const SLASH_ITEM_HEIGHT = 48;
+const SLASH_LIST_MAX_HEIGHT = 264;
+/** Below this the menu stops shrinking and simply overlaps — it has to stay usable. */
+const SLASH_LIST_MIN_HEIGHT = 96;
+const SLASH_HEADER_HEIGHT = 30;
+const SLASH_FOOTER_HEIGHT = 30;
+const SLASH_MENU_WIDTH = 272;
+const SLASH_MENU_GAP = 8;
+
+/** Where the `/` sits, so its text can be taken back out when an item is run. */
+interface SlashContext {
+  node: Text;
+  /** Index of the `/` itself within `node`. */
+  offset: number;
+  query: string;
+}
+
+/**
+ * Viewport coordinates of the thing a popover hangs from — the `/` for the menu,
+ * the caret for the step that follows it. Popovers are portalled to the body, so
+ * these are viewport coordinates rather than offsets within the editor.
+ */
+interface AnchorRect {
+  left: number;
+  top: number;
+  bottom: number;
+}
+
+/** Width of a step panel floating beside the caret. */
+const PANEL_WIDTH = 320;
+
+/**
+ * Which side of the anchor something of this height belongs on, and how much
+ * room it has there. Below unless that would run off the bottom and there is
+ * more room above — a popover covers the line being written only as a last resort.
+ */
+function anchorSide(rect: AnchorRect, wantedHeight: number): { above: boolean; room: number } {
+  const margin = SLASH_MENU_GAP + 8;
+  const spaceBelow = window.innerHeight - rect.bottom - margin;
+  const spaceAbove = rect.top - margin;
+  const above = wantedHeight > spaceBelow && spaceAbove > spaceBelow;
+
+  return { above, room: above ? spaceAbove : spaceBelow };
+}
+
+/** Viewport-clamped coordinates, so a scrolled-away anchor cannot take the popover with it. */
+function anchorPosition(rect: AnchorRect, width: number, height: number, above: boolean): React.CSSProperties {
+  const top = above ? rect.top - SLASH_MENU_GAP - height : rect.bottom + SLASH_MENU_GAP;
+
+  return {
+    width,
+    left: Math.max(8, Math.min(rect.left, window.innerWidth - width - 8)),
+    top: Math.max(8, Math.min(top, window.innerHeight - height - 8)),
+  };
+}
+
+/** The caret's own rect, for a step opened by a shortcut rather than by the menu. */
+function selectionRect(editor: HTMLElement): AnchorRect | null {
+  const selection = window.getSelection();
+  if (!selection || selection.rangeCount === 0) return null;
+
+  const range = selection.getRangeAt(0);
+  if (!editor.contains(range.startContainer)) return null;
+
+  const { left, top, bottom } = range.getBoundingClientRect();
+  // A collapsed range in an empty block can measure as nothing at all.
+  if (!left && !top && !bottom) return null;
+
+  return { left, top, bottom };
+}
+
+/**
+ * Every word of the query has to land somewhere in the label or the keywords,
+ * in any order — so `list bullet` finds the bulleted list just as `bul` does.
+ * Results are ranked, because whatever comes back first is what Enter picks.
+ */
+function filterSlashItems(query: string): SlashItem[] {
+  const words = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return SLASH_ITEMS;
+
+  const matched: { item: SlashItem; rank: number }[] = [];
+  for (const item of SLASH_ITEMS) {
+    const label = item.label.toLowerCase();
+    // Labels match anywhere, so `/head` still reaches Subheading. Keywords match
+    // only at the start of one of their words, which keeps `/ta` from dragging
+    // in the quote through `ci-ta-tion`.
+    const keywords = item.keywords.split(' ');
+    const hits = (word: string) => label.includes(word) || keywords.some((key) => key.startsWith(word));
+    if (!words.every(hits)) continue;
+
+    // A label the query opens wins, then a keyword it names outright, then a
+    // label it merely appears inside — so `/hr` leads with the divider.
+    const [first] = words;
+    const rank = label.startsWith(first) ? 0 : keywords.includes(first) ? 1 : label.includes(first) ? 2 : 3;
+    matched.push({ item, rank });
+  }
+
+  // Sort is stable, so SLASH_ITEMS order still settles ties.
+  return matched.sort((a, b) => a.rank - b.rank).map((entry) => entry.item);
+}
+
+/**
+ * The `/` before the caret and whatever has been typed since, or `null` when the
+ * caret is not sitting after one. The `/` has to start a word, which is what
+ * keeps `https://` and `and/or` from opening a menu mid-sentence.
+ */
+function readSlashContext(editor: HTMLElement): SlashContext | null {
+  const selection = window.getSelection();
+  if (!selection || !selection.isCollapsed || selection.rangeCount === 0) return null;
+
+  const node = selection.anchorNode;
+  if (!node || node.nodeType !== Node.TEXT_NODE || !editor.contains(node)) return null;
+
+  const text = (node as Text).data.slice(0, selection.anchorOffset);
+  // The query runs to the caret and may hold spaces, so `/bulleted list` is
+  // searchable; excluding `/` both ends it at a path and anchors the match to
+  // the *last* slash, which is the one just typed.
+  const match = /(?:^|[\s\u00a0])\/([^/\n]*)$/.exec(text);
+  if (!match) return null;
+
+  // A long run with nothing chosen is someone writing, not picking.
+  const query = match[1];
+  if (query.length > 32) return null;
+
+  return { node: node as Text, offset: selection.anchorOffset - query.length - 1, query };
+}
+
+/** Null once the text node has gone — a reset or an undo can take it away. */
+function slashRect(context: SlashContext): AnchorRect | null {
+  if (!context.node.isConnected) return null;
+
+  const length = context.node.data.length;
+  const range = document.createRange();
+  range.setStart(context.node, Math.min(context.offset, length));
+  range.setEnd(context.node, Math.min(context.offset + 1, length));
+
+  const { left, top, bottom } = range.getBoundingClientRect();
+  return { left, top, bottom };
+}
 
 function ToolbarButton({
   onClick,
@@ -175,18 +394,68 @@ export function RichTextEditor({
   const savedRangeRef = useRef<Range | null>(null);
   const columnTargetRef = useRef<{ table: HTMLTableElement; index: number } | null>(null);
 
-  // The only React state here: the inline bars, opened by a click, never by typing.
+  // The inline bars, opened by a click. The slash menu below is the one piece of
+  // state that typing does move — see the note on it.
   const [urlMode, setUrlMode] = useState<UrlMode>(null);
   const [urlValue, setUrlValue] = useState('');
   const [tableOpen, setTableOpen] = useState(false);
   const [tableRows, setTableRows] = useState(3);
   const [tableColumns, setTableColumns] = useState(3);
+  const [tableNumbering, setTableNumbering] = useState<HeaderNumbering>('none');
   const [columnOpen, setColumnOpen] = useState(false);
   const [columnWidth, setColumnWidth] = useState('');
   const [folderOpen, setFolderOpen] = useState(false);
   const [folderState, setFolderState] = useState<FolderStatus>('none');
   const [folderLabel, setFolderLabel] = useState<string | null>(null);
   const [folderNotice, setFolderNotice] = useState<string | null>(null);
+
+  /**
+   * The slash menu, and the one thing here that does re-render while the user
+   * types. That is safe only because the editor div has no children in the JSX:
+   * React owns the menu and never touches the contentEditable's innerHTML.
+   *
+   * `slashRef` is the open/closed truth and survives without a render; `slash`
+   * is what the menu draws itself from.
+   */
+  const [slash, setSlash] = useState<{ query: string; index: number; rect: AnchorRect } | null>(null);
+
+  /**
+   * Where a follow-up step should appear. `null` puts it inline under the
+   * toolbar, which is where the eye already is when a toolbar button opened it;
+   * a rect floats it beside the caret, so a step chosen from the slash menu
+   * halfway down a long post does not send the writer back up to the toolbar.
+   */
+  const [panelAnchor, setPanelAnchor] = useState<AnchorRect | null>(null);
+  const [panelHeight, setPanelHeight] = useState(0);
+  const panelResizeRef = useRef<ResizeObserver | null>(null);
+
+  /**
+   * Measures the floating panel, since where it goes depends on how tall it is
+   * and that changes with its contents — the table panel grows a preview row.
+   */
+  const measurePanel = useCallback((node: HTMLDivElement | null) => {
+    panelResizeRef.current?.disconnect();
+    panelResizeRef.current = null;
+
+    if (!node) {
+      setPanelHeight(0);
+      return;
+    }
+
+    setPanelHeight(node.offsetHeight);
+    const observer = new ResizeObserver(() => setPanelHeight(node.offsetHeight));
+    observer.observe(node);
+    panelResizeRef.current = observer;
+  }, []);
+  const slashRef = useRef<SlashContext | null>(null);
+  const slashListRef = useRef<HTMLDivElement>(null);
+
+  // Declared up here rather than with the rest of the slash menu: `setHtml` and
+  // the blur handler both close the menu, and they are defined further up still.
+  const closeSlashMenu = useCallback(() => {
+    slashRef.current = null;
+    setSlash(null);
+  }, []);
 
   // Pasted images are references until something reads them out of the folder.
   useLocalImages(editorRef);
@@ -302,19 +571,18 @@ export function RichTextEditor({
       setHtml: (html: string) => {
         const editor = editorRef.current;
         if (!editor) return;
+        // The text node the menu was anchored to is about to be thrown away.
+        closeSlashMenu();
         editor.innerHTML = wrapTables(prepareLocalImages(html || '')) || EMPTY_PARAGRAPH;
         refreshUi();
       },
       focus: () => editorRef.current?.focus(),
     }),
-    [refreshUi]
+    [closeSlashMenu, refreshUi]
   );
 
-  useEffect(() => {
-    const onSelectionChange = () => refreshUi();
-    document.addEventListener('selectionchange', onSelectionChange);
-    return () => document.removeEventListener('selectionchange', onSelectionChange);
-  }, [refreshUi]);
+  // The selectionchange listener lives further down, with the slash menu: it
+  // drives both, and the dependency array cannot name a callback declared later.
 
   /* ---------------------------------------------------------------------- */
   /*  Commands                                                               */
@@ -447,11 +715,17 @@ export function RichTextEditor({
   );
 
   const insertTable = useCallback(
-    (rows: number, columns: number) => {
+    (rows: number, columns: number, numbering: HeaderNumbering) => {
       const safeRows = Math.min(Math.max(Math.trunc(rows) || 0, 1), 20);
-      const safeColumns = Math.min(Math.max(Math.trunc(columns) || 0, 1), 10);
 
-      const headerCells = Array.from({ length: safeColumns }, () => '<th><br></th>').join('');
+      // The width is whatever `headerLabels` settled on, so a numbered table can
+      // never come out narrower than the two columns the counting needs.
+      const labels = headerLabels(columns, numbering);
+      const safeColumns = labels.length;
+
+      // An empty cell keeps its `<br>`: without one it has no line box and the
+      // caret cannot be put in it.
+      const headerCells = labels.map((label) => `<th>${label || '<br>'}</th>`).join('');
       const bodyRow = `<tr>${Array.from({ length: safeColumns }, () => '<td><br></td>').join('')}</tr>`;
       // The first row is the header, so the remaining rows are the body.
       const bodyRows = Array.from({ length: safeRows - 1 }, () => bodyRow).join('');
@@ -555,7 +829,16 @@ export function RichTextEditor({
     refreshUi();
   }, [currentCell, refreshUi]);
 
-  const openUrlInput = useCallback((mode: UrlMode) => {
+  /** Dismisses whichever follow-up step is open and hands the caret back. */
+  const closeStep = useCallback(() => {
+    setUrlMode(null);
+    setTableOpen(false);
+    setPanelAnchor(null);
+    editorRef.current?.focus();
+  }, []);
+
+  /** `anchor` floats the input beside the caret; `null` puts it under the toolbar. */
+  const openUrlInput = useCallback((mode: UrlMode, anchor: AnchorRect | null) => {
     const selection = window.getSelection();
     // A link needs text to attach to; an image just needs a caret position.
     if (mode === 'link' && (!selection || selection.rangeCount === 0 || selection.isCollapsed)) return;
@@ -564,6 +847,11 @@ export function RichTextEditor({
       // The input steals focus, so remember where this belongs.
       savedRangeRef.current = selection.getRangeAt(0).cloneRange();
     }
+    // One step at a time: two floating cards at the same anchor would overlap.
+    setTableOpen(false);
+    setColumnOpen(false);
+    setFolderOpen(false);
+    setPanelAnchor(anchor);
     setUrlValue('https://');
     setUrlMode(mode);
   }, []);
@@ -573,6 +861,7 @@ export function RichTextEditor({
     const mode = urlMode;
     const range = savedRangeRef.current;
     setUrlMode(null);
+    setPanelAnchor(null);
 
     if (!url || url === 'https://' || !mode) return;
 
@@ -588,6 +877,160 @@ export function RichTextEditor({
       exec('createLink', url);
     }
   }, [exec, insertImage, urlMode, urlValue]);
+
+  /* ---------------------------------------------------------------------- */
+  /*  Slash menu                                                             */
+  /* ---------------------------------------------------------------------- */
+
+  /**
+   * `opening` is true only for the keystroke that produced the `/` itself.
+   * Everything else may keep an open menu in step or close it, but may not open
+   * one — otherwise moving the caret next to an old slash would spring it open.
+   */
+  const syncSlashMenu = useCallback(
+    (opening: boolean) => {
+      const editor = editorRef.current;
+      if (!editor || (!opening && !slashRef.current)) return;
+
+      const context = readSlashContext(editor);
+      const rect = context && slashRect(context);
+      if (!context || !rect) {
+        closeSlashMenu();
+        return;
+      }
+
+      // A query that finds nothing stays open saying so, so a typo can be
+      // backspaced away. A space is what settles it: once one has been typed,
+      // anything that is not finding something is prose — `and / or`, `3 / 4` —
+      // and the menu gets out of the way.
+      const spaced = /[\s ]/.test(context.query);
+      if (spaced && (context.query.trim() === '' || filterSlashItems(context.query).length === 0)) {
+        closeSlashMenu();
+        return;
+      }
+
+      slashRef.current = context;
+      setSlash((prev) => {
+        // Same query in the same place: hand back the old object, so a caret
+        // event that changed nothing does not re-render.
+        if (prev && prev.query === context.query && prev.rect.left === rect.left && prev.rect.top === rect.top) {
+          return prev;
+        }
+        return { query: context.query, index: prev?.query === context.query ? prev.index : 0, rect };
+      });
+    },
+    [closeSlashMenu]
+  );
+
+  const runSlashItem = useCallback(
+    (item: SlashItem) => {
+      const editor = editorRef.current;
+      const context = slashRef.current;
+      // Read before the text goes, so a step that follows opens where the menu
+      // was rather than back up at the toolbar.
+      const anchor = context && slashRect(context);
+      closeSlashMenu();
+      if (!editor) return;
+
+      editor.focus();
+
+      // Take `/query` back out first, or it ends up inside the heading or list
+      // that replaces it.
+      if (context?.node.isConnected) {
+        const length = context.node.data.length;
+        const range = document.createRange();
+        range.setStart(context.node, Math.min(context.offset, length));
+        range.setEnd(context.node, Math.min(context.offset + 1 + context.query.length, length));
+
+        const selection = window.getSelection();
+        selection?.removeAllRanges();
+        selection?.addRange(range);
+
+        // `delete` rather than `range.deleteContents()`: the browser normalises
+        // the emptied paragraph back to `<p><br></p>` instead of leaving a bare
+        // text node behind, which formatBlock would otherwise orphan as a stray
+        // empty paragraph. It also puts the removal on the undo stack.
+        document.execCommand('delete');
+      }
+
+      switch (item.id) {
+        case 'h2':
+        case 'h3':
+        case 'blockquote':
+        case 'p':
+          // Set rather than toggle: the menu was asked for this block by name.
+          exec('formatBlock', `<${item.id}>`);
+          break;
+        case 'ul':
+          exec('insertUnorderedList');
+          break;
+        case 'ol':
+          exec('insertOrderedList');
+          break;
+        case 'hr':
+          exec('insertHorizontalRule');
+          break;
+        case 'image':
+          openUrlInput('image', anchor);
+          break;
+        case 'table':
+        case 'table-numbered': {
+          const numbered = item.id === 'table-numbered';
+          setUrlMode(null);
+          setColumnOpen(false);
+          setFolderOpen(false);
+          setPanelAnchor(anchor);
+          // Each entry is named for what it makes, so it sets the mode rather
+          // than inheriting whatever the bar was left on last time.
+          setTableNumbering(numbered ? 'from-left' : 'none');
+          if (numbered) setTableColumns((columns) => Math.max(columns, MIN_NUMBERED_COLUMNS));
+          setTableOpen(true);
+          break;
+        }
+        default:
+          // The marks carry their own execCommand name as an id, and apply to
+          // whatever is typed next.
+          exec(item.id);
+      }
+    },
+    [closeSlashMenu, exec, openUrlInput]
+  );
+
+  useEffect(() => {
+    const onSelectionChange = () => {
+      refreshUi();
+      // Cannot open the menu, but closes it when the caret leaves the query.
+      syncSlashMenu(false);
+    };
+    document.addEventListener('selectionchange', onSelectionChange);
+    return () => document.removeEventListener('selectionchange', onSelectionChange);
+  }, [refreshUi, syncSlashMenu]);
+
+  const slashOpen = slash !== null;
+
+  // The caret keeps its place on the page while the page moves under it.
+  useEffect(() => {
+    if (!slashOpen) return;
+
+    const reposition = () => {
+      const context = slashRef.current;
+      const rect = context && slashRect(context);
+      if (rect) setSlash((prev) => (prev ? { ...prev, rect } : prev));
+    };
+
+    // Capture, so a scroll in any ancestor counts, not just the window.
+    window.addEventListener('scroll', reposition, true);
+    window.addEventListener('resize', reposition);
+    return () => {
+      window.removeEventListener('scroll', reposition, true);
+      window.removeEventListener('resize', reposition);
+    };
+  }, [slashOpen]);
+
+  // Arrowing past the fold should bring the row with it.
+  useEffect(() => {
+    slashListRef.current?.querySelector('[data-active="true"]')?.scrollIntoView({ block: 'nearest' });
+  }, [slash?.index]);
 
   /* ---------------------------------------------------------------------- */
   /*  Input handling                                                         */
@@ -678,8 +1121,45 @@ export function RichTextEditor({
     [insertPastedImage, refreshUi]
   );
 
+  const handleInput = useCallback(
+    (event: React.FormEvent<HTMLDivElement>) => {
+      refreshUi();
+      // Only a typed `/` may open the menu; anything else can merely keep it in
+      // step. `data` is null for deletions and some IME input, which is correct.
+      syncSlashMenu((event.nativeEvent as InputEvent).data === '/');
+    },
+    [refreshUi, syncSlashMenu]
+  );
+
   const handleKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
+      // The slash menu takes the navigation keys before anything else does —
+      // but only while it has something to navigate. Showing "no matches" must
+      // not swallow Enter and leave the writer unable to start a new line.
+      if (slash) {
+        const items = filterSlashItems(slash.query);
+        if (items.length === 0) {
+          if (event.key === 'Escape') {
+            event.preventDefault();
+            closeSlashMenu();
+            return;
+          }
+        } else if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          event.preventDefault();
+          const step = event.key === 'ArrowDown' ? 1 : -1;
+          setSlash((prev) => (prev ? { ...prev, index: (prev.index + step + items.length) % items.length } : prev));
+          return;
+        } else if (event.key === 'Enter' || event.key === 'Tab') {
+          event.preventDefault();
+          runSlashItem(items[slash.index] ?? items[0]);
+          return;
+        } else if (event.key === 'Escape') {
+          event.preventDefault();
+          closeSlashMenu();
+          return;
+        }
+      }
+
       // Enter inside a list that lives in a table cell is done here rather than
       // left to the browser, which is inclined to leave the cell and carry the
       // next item into the row below instead of adding it to the list.
@@ -707,11 +1187,69 @@ export function RichTextEditor({
         toggleBlock('h3');
       } else if (event.key.toLowerCase() === 'k') {
         event.preventDefault();
-        openUrlInput('link');
+        // Opened from the keyboard, so it belongs at the caret rather than at
+        // the top of an editor the writer may be a long way down.
+        const editor = editorRef.current;
+        openUrlInput('link', editor ? selectionRect(editor) : null);
       }
     },
-    [openUrlInput, refreshUi, toggleBlock]
+    [closeSlashMenu, openUrlInput, refreshUi, runSlashItem, slash, toggleBlock]
   );
+
+  const slashItems = slash ? filterSlashItems(slash.query) : [];
+
+  // Worked out here rather than in the JSX below: it needs the filtered length,
+  // and `window` must not be touched during the server render.
+  let slashStyle: React.CSSProperties | null = null;
+  let slashListStyle: React.CSSProperties | undefined;
+  if (slash && typeof window !== 'undefined') {
+    // The empty state still occupies a row's worth of height.
+    const rows = Math.max(slashItems.length, 1);
+    const chrome = SLASH_HEADER_HEIGHT + SLASH_FOOTER_HEIGHT;
+    const wanted = Math.min(rows * SLASH_ITEM_HEIGHT + 8, SLASH_LIST_MAX_HEIGHT) + chrome;
+    const { above, room } = anchorSide(slash.rect, wanted);
+
+    // On a short viewport the list scrolls rather than hanging off the screen.
+    const listHeight = Math.max(SLASH_LIST_MIN_HEIGHT, Math.min(SLASH_LIST_MAX_HEIGHT, room - chrome));
+    slashListStyle = { maxHeight: listHeight };
+
+    const height = chrome + Math.min(listHeight, rows * SLASH_ITEM_HEIGHT + 8);
+    slashStyle = anchorPosition(slash.rect, SLASH_MENU_WIDTH, height, above);
+  }
+
+  // The floating step that a slash-menu pick or a shortcut opens. Hidden for the
+  // first frame, while `measurePanel` finds out how tall it turned out to be.
+  let panelStyle: React.CSSProperties | null = null;
+  if (panelAnchor && typeof window !== 'undefined') {
+    const { above } = anchorSide(panelAnchor, panelHeight || 120);
+    panelStyle = {
+      ...anchorPosition(panelAnchor, PANEL_WIDTH, panelHeight, above),
+      visibility: panelHeight ? 'visible' : 'hidden',
+    };
+  }
+
+  /**
+   * A follow-up step, put wherever it was asked for: a strip under the toolbar
+   * when a toolbar button opened it, a card beside the caret when the slash menu
+   * or a shortcut did. Same controls either way — only the frame differs.
+   */
+  const stepPanel = (content: React.ReactNode) =>
+    panelStyle
+      ? createPortal(
+          <div
+            ref={measurePanel}
+            style={panelStyle}
+            className="fixed z-50 rounded-xl border border-black/10 bg-white shadow-xl dark:border-white/10 dark:bg-[#1C1C1E]"
+          >
+            <div className="flex flex-wrap items-center gap-2 px-2.5 py-2">{content}</div>
+          </div>,
+          document.body
+        )
+      : (
+          <div className="flex flex-wrap items-center gap-2 border-b border-border bg-[#FF4D8E]/5 px-2 py-2">
+            {content}
+          </div>
+        );
 
   return (
     <div
@@ -771,7 +1309,7 @@ export function RichTextEditor({
 
         <ToolbarDivider />
 
-        <ToolbarButton title="Insert image from URL" onClick={() => openUrlInput('image')}>
+        <ToolbarButton title="Insert image from URL" onClick={() => openUrlInput('image', null)}>
           <ImagePlus className="h-4 w-4" />
         </ToolbarButton>
         <ToolbarButton
@@ -794,6 +1332,8 @@ export function RichTextEditor({
           active={tableOpen}
           onClick={() => {
             setUrlMode(null);
+            // Opened from the toolbar, so it belongs under the toolbar.
+            setPanelAnchor(null);
             setTableOpen((prev) => !prev);
           }}
         >
@@ -817,7 +1357,7 @@ export function RichTextEditor({
 
         <ToolbarDivider />
 
-        <ToolbarButton title="Add link (Ctrl+K)" onClick={() => openUrlInput('link')}>
+        <ToolbarButton title="Add link (Ctrl+K)" onClick={() => openUrlInput('link', null)}>
           <Link2 className="h-4 w-4" />
         </ToolbarButton>
         <ToolbarButton title="Remove link" onClick={() => exec('unlink')}>
@@ -848,53 +1388,55 @@ export function RichTextEditor({
       </div>
 
       {/* Link / image URL input */}
-      {urlMode && (
-        <div className="flex items-center gap-2 border-b border-border bg-[#FF4D8E]/5 px-2 py-2">
-          {urlMode === 'image' ? (
-            <ImagePlus className="h-4 w-4 shrink-0 text-[#FF4D8E]" />
-          ) : (
-            <Link2 className="h-4 w-4 shrink-0 text-[#FF4D8E]" />
-          )}
-          <input
-            autoFocus
-            value={urlValue}
-            onChange={(e) => setUrlValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                applyUrl();
-              } else if (e.key === 'Escape') {
-                e.preventDefault();
-                setUrlMode(null);
-              }
-            }}
-            placeholder={urlMode === 'image' ? 'https://example.com/photo.jpg' : 'https://example.com'}
-            aria-label={urlMode === 'image' ? 'Image URL' : 'Link URL'}
-            className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-sm outline-none focus:border-[#FF4D8E]/50"
-          />
-          <button
-            type="button"
-            onClick={applyUrl}
-            title={urlMode === 'image' ? 'Insert image' : 'Apply link'}
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-[#FF4D8E] text-white hover:bg-[#FF4D8E]/90"
-          >
-            <Check className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => setUrlMode(null)}
-            title="Cancel"
-            className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </div>
-      )}
+      {urlMode &&
+        stepPanel(
+          <>
+            {urlMode === 'image' ? (
+              <ImagePlus className="h-4 w-4 shrink-0 text-[#FF4D8E]" />
+            ) : (
+              <Link2 className="h-4 w-4 shrink-0 text-[#FF4D8E]" />
+            )}
+            <input
+              autoFocus
+              value={urlValue}
+              onChange={(e) => setUrlValue(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault();
+                  applyUrl();
+                } else if (e.key === 'Escape') {
+                  e.preventDefault();
+                  closeStep();
+                }
+              }}
+              placeholder={urlMode === 'image' ? 'https://example.com/photo.jpg' : 'https://example.com'}
+              aria-label={urlMode === 'image' ? 'Image URL' : 'Link URL'}
+              className="min-w-0 flex-1 rounded-md border border-border bg-background px-2 py-1 text-sm outline-none focus:border-[#FF4D8E]/50"
+            />
+            <button
+              type="button"
+              onClick={applyUrl}
+              title={urlMode === 'image' ? 'Insert image' : 'Apply link'}
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md bg-[#FF4D8E] text-white hover:bg-[#FF4D8E]/90"
+            >
+              <Check className="h-4 w-4" />
+            </button>
+            <button
+              type="button"
+              onClick={closeStep}
+              title="Cancel"
+              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </>
+        )}
 
       {/* Table size input */}
-      {tableOpen && (
-        <div className="flex flex-wrap items-center gap-2 border-b border-border bg-[#FF4D8E]/5 px-2 py-2">
-          <Table className="h-4 w-4 shrink-0 text-[#FF4D8E]" />
+      {tableOpen &&
+        stepPanel(
+          <>
+            <Table className="h-4 w-4 shrink-0 text-[#FF4D8E]" />
           <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
             Rows
             <input
@@ -911,7 +1453,7 @@ export function RichTextEditor({
             Columns
             <input
               type="number"
-              min={1}
+              min={tableNumbering === 'none' ? 1 : MIN_NUMBERED_COLUMNS}
               max={10}
               value={tableColumns}
               onChange={(e) => setTableColumns(Number(e.target.value))}
@@ -919,31 +1461,81 @@ export function RichTextEditor({
               className="w-16 rounded-md border border-border bg-background px-2 py-1 text-sm text-foreground outline-none focus:border-[#FF4D8E]/50"
             />
           </label>
-          <span className="ml-auto flex items-center gap-1">
-            <button
-              type="button"
-              onClick={() => {
-                insertTable(tableRows, tableColumns);
-                setTableOpen(false);
-              }}
-              title="Insert table"
-              className="inline-flex h-7 items-center gap-1.5 rounded-md bg-[#FF4D8E] px-3 text-xs font-medium text-white hover:bg-[#FF4D8E]/90"
-            >
-              <Check className="h-3.5 w-3.5" />
-              Insert
-            </button>
-            <button
-              type="button"
-              onClick={() => setTableOpen(false)}
-              title="Cancel"
-              className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10"
-            >
-              <X className="h-4 w-4" />
-            </button>
+
+          {/* Header numbering */}
+          <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+            <Hash className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span id="table-numbering-label">Number header</span>
+            <span role="group" aria-labelledby="table-numbering-label" className="flex items-center gap-1">
+              {(
+                [
+                  ['none', 'Off', 'Leave the header row empty'],
+                  ['from-left', 'From left', 'First column empty, then 1, 2, 3… rightwards'],
+                  ['from-right', 'From right', 'Counts back from the last column, for a right-to-left table'],
+                ] as const
+              ).map(([mode, label, title]) => (
+                <button
+                  key={mode}
+                  type="button"
+                  title={title}
+                  aria-pressed={tableNumbering === mode}
+                  data-active={tableNumbering === mode}
+                  onClick={() => {
+                    setTableNumbering(mode);
+                    // A single column has nothing to count once the stub is taken.
+                    if (mode !== 'none') setTableColumns((columns) => Math.max(columns, MIN_NUMBERED_COLUMNS));
+                  }}
+                  className="inline-flex h-7 items-center rounded-md border border-border px-2 text-xs text-[#1C1C1E]/70 hover:border-[#FF4D8E]/40 data-[active=true]:border-[#D81B60] data-[active=true]:text-[#D81B60] dark:text-white/70 dark:data-[active=true]:border-[#FF8FB8] dark:data-[active=true]:text-[#FF8FB8]"
+                >
+                  {label}
+                </button>
+              ))}
+            </span>
           </span>
-          <p className="w-full text-xs text-muted-foreground">The first row becomes the header.</p>
-        </div>
-      )}
+
+            <span className="ml-auto flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => {
+                  insertTable(tableRows, tableColumns, tableNumbering);
+                  closeStep();
+                }}
+                title="Insert table"
+                className="inline-flex h-7 items-center gap-1.5 rounded-md bg-[#FF4D8E] px-3 text-xs font-medium text-white hover:bg-[#FF4D8E]/90"
+              >
+                <Check className="h-3.5 w-3.5" />
+                Insert
+              </button>
+              <button
+                type="button"
+                onClick={closeStep}
+                title="Cancel"
+                className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground hover:bg-black/5 dark:hover:bg-white/10"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </span>
+            <p className="w-full text-xs text-muted-foreground">
+              The first row becomes the header.
+              {tableNumbering !== 'none' && ' The first column stays empty for row labels.'}
+            </p>
+
+            {/* Exactly the header row that is about to be inserted, so the choice
+                of direction is something to look at rather than work out. */}
+            {tableNumbering !== 'none' && (
+              <span className="flex w-full flex-wrap items-center gap-1" aria-hidden>
+                {headerLabels(tableColumns, tableNumbering).map((label, index) => (
+                  <span
+                    key={index}
+                    className="inline-flex h-6 min-w-8 items-center justify-center rounded border border-border px-1.5 text-xs tabular-nums text-[#1C1C1E]/70 dark:text-white/70"
+                  >
+                    {label || '—'}
+                  </span>
+                ))}
+              </span>
+            )}
+          </>
+        )}
 
       {/* Image folder */}
       {folderOpen && (
@@ -1096,8 +1688,13 @@ export function RichTextEditor({
           aria-label="Post content"
           // `auto` follows the first strong character, so typing Hebrew flips it.
           dir={direction ?? 'auto'}
-          onInput={refreshUi}
-          onBlur={() => onBlur?.(editorRef.current ? unwrapTables(restoreLocalImages(editorRef.current)) : '')}
+          onInput={handleInput}
+          onBlur={() => {
+            // A click on the menu prevents its own mousedown, so this does not
+            // fire out from under a pick.
+            closeSlashMenu();
+            onBlur?.(editorRef.current ? unwrapTables(restoreLocalImages(editorRef.current)) : '');
+          }}
           onPaste={handlePaste}
           onKeyDown={handleKeyDown}
           onKeyUp={refreshUi}
@@ -1109,8 +1706,73 @@ export function RichTextEditor({
       {/* Status bar */}
       <div className="flex items-center justify-between border-t border-border px-3 py-1.5 text-xs text-muted-foreground">
         <span ref={countRef}>0 words</span>
-        <span className="hidden sm:inline">Ctrl+B bold · Ctrl+K link · Ctrl+Alt+2 heading</span>
+        <span className="hidden sm:inline">Type / for options · Ctrl+B bold · Ctrl+K link</span>
       </div>
+
+      {/* Slash menu.
+
+          Portalled to the body rather than positioned inside the editor: the
+          container above is `overflow-hidden`, and its `backdrop-blur` makes it
+          the containing block for fixed children, so a menu left in place would
+          be both clipped and mispositioned. */}
+      {slash &&
+        slashStyle &&
+        createPortal(
+          <div
+            role="listbox"
+            aria-label="Insert"
+            style={slashStyle}
+            className="fixed z-50 overflow-hidden rounded-xl border border-black/10 bg-white shadow-xl dark:border-white/10 dark:bg-[#1C1C1E]"
+          >
+            {/* The query lives in the post, not in an input — this is what says
+                so, and what makes the menu legible as a search. */}
+            <div className="flex items-center gap-2 border-b border-black/10 px-3 py-1.5 dark:border-white/10">
+              <Search className="h-3.5 w-3.5 shrink-0 text-[#1C1C1E]/40 dark:text-white/40" />
+              <span dir="auto" className="min-w-0 flex-1 truncate text-xs text-[#1C1C1E] dark:text-white">
+                {slash.query || <span className="text-[#1C1C1E]/40 dark:text-white/40">Type to search…</span>}
+              </span>
+              <span className="shrink-0 text-[11px] tabular-nums text-[#1C1C1E]/40 dark:text-white/40">
+                {slashItems.length}
+              </span>
+            </div>
+
+            <div ref={slashListRef} style={slashListStyle} className="overflow-y-auto py-1">
+              {slashItems.length === 0 && (
+                <p className="px-3 py-3 text-sm text-[#1C1C1E]/50 dark:text-white/50">
+                  Nothing matches — keep typing or backspace.
+                </p>
+              )}
+              {slashItems.map((item, index) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  role="option"
+                  aria-selected={index === slash.index}
+                  data-active={index === slash.index}
+                  // Keep the caret in the editor, exactly as the toolbar does.
+                  onMouseDown={(e) => e.preventDefault()}
+                  // Hover and the keyboard drive the same highlight, so the two
+                  // can never disagree about what Enter would pick.
+                  onMouseEnter={() => setSlash((prev) => (prev ? { ...prev, index } : prev))}
+                  onClick={() => runSlashItem(item)}
+                  className="group flex w-full items-center gap-3 px-3 py-2 text-start data-[active=true]:bg-[#FF4D8E]/12 dark:data-[active=true]:bg-[#FF4D8E]/20"
+                >
+                  {/* The accent is carried by the icon, not the label: pink text
+                      on a pink tint does not clear contrast at this size. */}
+                  <item.Icon className="h-4 w-4 shrink-0 text-[#1C1C1E]/45 group-data-[active=true]:text-[#D81B60] dark:text-white/50 dark:group-data-[active=true]:text-[#FF8FB8]" />
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm text-[#1C1C1E] dark:text-white">{item.label}</span>
+                    <span className="block truncate text-xs text-[#1C1C1E]/50 dark:text-white/50">{item.hint}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+            <div className="border-t border-black/10 px-3 py-1.5 text-[11px] text-[#1C1C1E]/50 dark:border-white/10 dark:text-white/50">
+              {slashItems.length === 0 ? 'Esc dismiss' : '↑↓ move · Enter choose · Esc dismiss'}
+            </div>
+          </div>,
+          document.body
+        )}
     </div>
   );
 }
