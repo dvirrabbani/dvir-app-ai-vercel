@@ -14,7 +14,7 @@ import { useCallback, useMemo, useState } from 'react';
 import { ChartColumn, Droplets, Utensils } from 'lucide-react';
 import { formatDayTitle, fromDateKey } from '@/lib/calendar';
 import { DAY_PARTS, DAY_PART_LABELS } from '@/lib/day-parts';
-import { DaySummary, RangeSummary, formatDuration, shiftDay } from '@/lib/lifestyle';
+import { DaySummary, MealTally, RangeSummary, formatDuration, shiftDay } from '@/lib/lifestyle';
 import { useLogRange } from '@/lib/use-lifestyle';
 import {
   RegionHeader,
@@ -26,6 +26,16 @@ import {
 
 /** A bar is drawn against the longest night, or against eight hours if that is longer. */
 const SLEEP_SCALE_FLOOR = 8 * 60;
+
+/**
+ * Literal colours. `text-foreground` and `text-muted-foreground` are wired to
+ * real HSL variables in `globals.css` but the Tailwind utilities resolve to
+ * plain white whatever the theme — which is invisible on the light card, and
+ * gives a name and the quieter line under it the same weight on the dark one.
+ * The rest of this file still leans on those tokens; these two do not.
+ */
+const MUTED = 'text-[#4B5563] dark:text-[#9CA3AF]';
+const PRIMARY = 'text-[#1C1C1E] dark:text-white';
 
 function shortDate(date: string): string {
   return fromDateKey(date).toLocaleDateString('en-US', { weekday: 'short', day: 'numeric', month: 'short' });
@@ -96,6 +106,75 @@ function PartSplit({ summary }: { summary: RangeSummary }) {
             </li>
           );
         })}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * One thing eaten in the range, and how often. The name is the row; what it was
+ * made of and when in the day it falls sit under it, because the question this
+ * answers is "what have I been eating" and the rest is the detail behind it.
+ */
+function MealRow({ meal, most }: { meal: MealTally; most: number }) {
+  const under = [
+    meal.ingredients.join(', '),
+    meal.parts.map((part) => DAY_PART_LABELS[part].toLowerCase()).join(' · '),
+  ]
+    .filter(Boolean)
+    .join(' — ');
+
+  return (
+    <li className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg px-1 py-1 text-xs odd:bg-black/[0.02] dark:odd:bg-white/[0.03]">
+      <span className="flex min-w-32 flex-1 flex-col leading-tight">
+        <span dir="auto" className={`truncate font-medium ${PRIMARY}`}>
+          {meal.name}
+        </span>
+        {under && (
+          <span dir="auto" className={`truncate text-[11px] ${MUTED}`}>
+            {under}
+          </span>
+        )}
+      </span>
+
+      <span className="flex min-w-28 flex-1 items-center gap-2">
+        <Bar value={meal.count} of={most} tone="bg-[#FF4D8E]" />
+        <span className={`w-12 shrink-0 tabular-nums ${PRIMARY}`}>{meal.count}×</span>
+      </span>
+
+      <span className={`w-20 shrink-0 text-right tabular-nums ${timeClass}`} title={`Last eaten ${meal.lastOn}`}>
+        {shortDate(meal.lastOn)}
+      </span>
+    </li>
+  );
+}
+
+/**
+ * Everything eaten in the range, gathered by name. It sits above the day-by-day
+ * list: what you ate is the question, and which day each one landed on is the
+ * follow-up.
+ */
+function MealsEaten({ meals }: { meals: MealTally[] }) {
+  if (meals.length === 0) return null;
+
+  const most = Math.max(1, ...meals.map((meal) => meal.count));
+
+  return (
+    <div className="mt-3 rounded-xl border border-black/[0.06] p-3 dark:border-white/[0.08]">
+      <div className="mb-2 flex flex-wrap items-center gap-x-2">
+        <Utensils className={`h-3.5 w-3.5 shrink-0 ${MUTED}`} aria-hidden />
+        <p className={`text-xs font-medium uppercase tracking-wide ${MUTED}`}>What you ate</p>
+        <span className={`text-xs tabular-nums ${MUTED}`}>
+          {meals.length} different meal{meals.length === 1 ? '' : 's'}
+        </span>
+      </div>
+
+      {/* Scrolls inside the card the same way the day-by-day list does — a long
+          range can turn up a hundred different meals. */}
+      <ul className="max-h-64 space-y-0.5 overflow-y-auto">
+        {meals.map((meal) => (
+          <MealRow key={meal.name.toLowerCase()} meal={meal} most={most} />
+        ))}
       </ul>
     </div>
   );
@@ -260,6 +339,8 @@ export function LifestyleSummary({ selected }: { selected: string }) {
           </div>
 
           <PartSplit summary={summary} />
+
+          <MealsEaten meals={summary.mealsEaten} />
 
           <div className="mt-3 rounded-xl border border-black/[0.06] p-3 dark:border-white/[0.08]">
             <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Day by day</p>

@@ -13,6 +13,7 @@
 
 import { fromDateKey, isValidDateKey, toDateKey } from '@/lib/calendar';
 import { DAY_PARTS, DayPart, partOfDay } from '@/lib/day-parts';
+import { MEAL_SEPARATOR } from '@/lib/diet';
 
 export interface LifestyleEntry {
   id: string;
@@ -37,7 +38,12 @@ export const LIFESTYLE_KEY = 'dvir-lifestyle:days';
 /** Fired on `window` after any write, so open views can refresh themselves. */
 export const LIFESTYLE_EVENT = 'lifestyle-changed';
 
-export const ENTRY_MAX_LENGTH = 120;
+/**
+ * Long enough for a meal tapped off the menu to arrive whole: a plate carries
+ * what it is made of with it, so "Chicken bowl — chicken, rice, salad, olive
+ * oil" is one entry rather than a name cut off mid-word.
+ */
+export const ENTRY_MAX_LENGTH = 240;
 export const MAX_ENTRIES_PER_DAY = 40;
 
 /** Days older than this are dropped, so storage cannot grow without bound. */
@@ -361,6 +367,37 @@ export interface DaySummary {
   logged: boolean;
 }
 
+export interface MealTally {
+  /** The meal as it was written down, in the spelling used most recently. */
+  name: string;
+  /** What it was made of the last time it was eaten, when the line carried it. */
+  ingredients: string[];
+  count: number;
+  /** The last day it was eaten, and the stretches of the day it falls in. */
+  lastOn: string;
+  parts: DayPart[];
+}
+
+/**
+ * A logged meal read back into its two halves. The log keeps one line of text —
+ * "Chicken bowl — chicken, rice, salad" — so counting how often a meal came
+ * round means taking the name off the front of it. A meal typed straight into
+ * the day has no separator and is all name, which is exactly right.
+ */
+function splitMeal(what: string): { name: string; ingredients: string[] } {
+  const at = what.indexOf(MEAL_SEPARATOR);
+  if (at === -1) return { name: what.trim(), ingredients: [] };
+
+  return {
+    name: what.slice(0, at).trim(),
+    ingredients: what
+      .slice(at + MEAL_SEPARATOR.length)
+      .split(',')
+      .map((each) => each.trim())
+      .filter(Boolean),
+  };
+}
+
 export interface RangeSummary {
   /** Every day in the range, logged or not, so the gaps show. */
   days: DaySummary[];
@@ -373,6 +410,8 @@ export interface RangeSummary {
   visits: number;
   mealsByPart: Record<DayPart, number>;
   visitsByPart: Record<DayPart, number>;
+  /** Which meals they actually were, the most eaten first. */
+  mealsEaten: MealTally[];
   /** The longest night in the range, which the bars are drawn against. */
   longestSleep: number;
 }
@@ -393,6 +432,11 @@ export function summariseRange(logs: Record<string, DayLog>, from: string, to: s
 
   const mealsByPart: Record<DayPart, number> = { morning: 0, noon: 0, evening: 0 };
   const visitsByPart: Record<DayPart, number> = { morning: 0, noon: 0, evening: 0 };
+
+  // Gathered under the name, not the whole line, so a meal typed out by hand one
+  // day and tapped off the menu the next is one thing eaten twice. Keyed in
+  // lower case for the same reason names are unique that way on the menu.
+  const eaten = new Map<string, MealTally>();
 
   let meals = 0;
   let visits = 0;
@@ -425,6 +469,27 @@ export function summariseRange(logs: Record<string, DayLog>, from: string, to: s
       visitsByPart[part] += entriesInPart(log.bathroom, part).length;
     }
 
+    // The days arrive oldest first, so the last write of a name is the most
+    // recent time it was eaten — which is the spelling and the recipe to keep.
+    for (const meal of log.meals) {
+      const { name, ingredients } = splitMeal(meal.what);
+      if (!name) continue;
+
+      const part = partOfDay(meal.time);
+      const tally = eaten.get(name.toLowerCase());
+
+      if (!tally) {
+        eaten.set(name.toLowerCase(), { name, ingredients, count: 1, lastOn: date, parts: [part] });
+        continue;
+      }
+
+      tally.count += 1;
+      tally.name = name;
+      tally.ingredients = ingredients;
+      tally.lastOn = date;
+      if (!tally.parts.includes(part)) tally.parts.push(part);
+    }
+
     days.push({
       date,
       wokeAt: log.wokeAt,
@@ -446,6 +511,11 @@ export function summariseRange(logs: Record<string, DayLog>, from: string, to: s
     visits,
     mealsByPart,
     visitsByPart,
+    // Most eaten first; the recent one wins a tie, since two meals eaten twice
+    // are told apart by which is still in the rotation.
+    mealsEaten: [...eaten.values()]
+      .map((tally) => ({ ...tally, parts: DAY_PARTS.filter((part) => tally.parts.includes(part)) }))
+      .sort((a, b) => b.count - a.count || b.lastOn.localeCompare(a.lastOn) || a.name.localeCompare(b.name)),
     longestSleep,
   };
 }

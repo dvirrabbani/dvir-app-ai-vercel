@@ -73,6 +73,7 @@ const EMPTY_SUMMARY: RangeSummary = {
   visits: 0,
   mealsByPart: { morning: 0, noon: 0, evening: 0 },
   visitsByPart: { morning: 0, noon: 0, evening: 0 },
+  mealsEaten: [],
   longestSleep: 0,
 };
 

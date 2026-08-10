@@ -87,16 +87,37 @@ something to guess at; the menu fills up from the **Keep** button beside the mea
 form, which puts what you just typed on the menu tagged with that part. Names are
 unique case-insensitively, so `addDish` and `updateDish` both refuse a duplicate
 rather than growing a second chip for the same thing.
+
+A dish can also be a whole meal with `ingredients` under it — chicken, rice and
+salad kept under one name — so a plate is one chip rather than three. Those are
+only what the meal is made of: they carry no day-part tags of their own, they are
+deduplicated case-insensitively within the meal (`addIngredient` refuses a repeat
+or a thirteenth), and `describeDish` is what actually reaches the day log,
+`Name — a, b, c`. The log stores that string and not a reference, so renaming the
+meal or taking it off the menu leaves every day already written down saying there
+was rice. `ENTRY_MAX_LENGTH` in `lifestyle.ts` is sized for that line rather than
+a bare name.
+
 `components/routines/diet-menu.tsx` holds both halves: `DishChips`, the tap-to-log
 row inside each part, and `DietMenuPanel`, the whole menu behind the salad icon in
 the day's heading — one panel rather than three, because a dish moves between the
-parts by its tags and three editors would hide that.
+parts by its tags and three editors would hide that. Each row in the panel carries
+its own `IngredientEditor` underneath, in the open rather than behind a disclosure:
+two plates with the same name are told apart only by what is under them.
 
 The summary page is a chosen date range (`summariseRange`,
 `components/routines/lifestyle-summary.tsx`), opening on the week ending today and
 staying where it is put after that. Averages are taken over the days that have the thing written down,
 not over the whole range — three logged days out of thirty read as three days of
-habit rather than twenty-seven lie-ins. Bedtimes are averaged with anything before
+habit rather than twenty-seven lie-ins. `mealsEaten` is the same range read as
+*what* was eaten rather than how much: every logged meal gathered by name
+(`MealTally`), most eaten first, with how often, what it was last made of and
+when in the day it falls. The name is taken off the front of the logged line with
+`splitMeal`, which is why `MEAL_SEPARATOR` lives in `diet.ts` and is imported
+here — the line is written by one and read apart by the other, and two copies of
+`' — '` would drift. Grouping is case-insensitive and keeps the most recent
+spelling, so a meal typed by hand one day and tapped off the menu the next is one
+thing eaten twice. Bedtimes are averaged with anything before
 noon counted past 24:00, so 23:40 and 00:20 average to 00:00 instead of to midday.
 The day-by-day list keeps the blank days visible, because a gap is the finding. A show is not a routine: it comes
 out whether or not you are there for it, so it holds a weekday, an optional time
