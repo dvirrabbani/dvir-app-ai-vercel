@@ -34,17 +34,89 @@ Each feature is a matched pair of files:
 | `local-posts.ts` (+ `blog.ts` seed data) | `use-local-posts.ts` | `app/blog/**` |
 | `poll.ts` | `use-poll.ts` | `app/poll/**` |
 | `calendar.ts` | `use-calendar.ts` | `app/calendar` |
-| `routines.ts` | `use-routines.ts` | `app/calendar` |
+| `routines.ts` | `use-routines.ts` | `app/routines` |
+| `lifestyle.ts` | `use-lifestyle.ts` | `app/routines`, `app/routines/summary` |
+| `diet.ts` | `use-diet.ts` | `app/routines` |
+| `entertainment.ts` | `use-entertainment.ts` | `app/routines` |
 | `milestones.ts` | `use-milestones.ts` | `app/milestones` |
 | `milestone-cycles.ts` | `use-milestone-cycles.ts` | `app/milestones` |
 | `goals.ts` | `use-goals.ts` | `app/milestones` |
 | `contact.ts` | `use-contact.ts` | `app/contact` |
 
 Two of those are about repeating work and are easy to mix up. `routines.ts` is the
-calendar's open-ended habits — a cadence, no end date, nothing to finish.
+routines page's open-ended habits — a cadence, no end date, nothing to finish.
 `milestone-cycles.ts` is the milestones page's bounded version — a start and an end
 date, a cycle of a week/fortnight/month repeating between them, and a percentage
 that can reach 100.
+
+`lib/day-parts.ts` is not a feature — it owns the three stretches a day is read in
+(`DayPart`, the labels, `partOfDay`, `defaultTimeFor`) because the routines and the
+day log are both placed by that same clock, and neither should own it.
+
+`app/routines` stacks three things, all following the one day it has selected: the
+**day log** (`lifestyle.ts`) first, then the routines, then **what is on this
+week** (`entertainment.ts`). Reading a stretch of those days back is a page of its
+own, `app/routines/summary`, linked from under the day log — it wants the whole
+width, and it is not something you do while logging a meal. That inner route has a
+`layout.tsx` for its metadata only: the navbar comes from `app/routines/layout.tsx`,
+which wraps it too, and rendering another would put two on the screen.
+
+The day log is what actually happened — got up at, what you ate, every bathroom
+visit, went to sleep at — kept in the same three parts, with the wake-up at the top
+of the morning and the bedtime at the bottom of the evening. `sleepMinutes` reads a bedtime later than the wake-up as the night
+before, so 23:40 to 07:10 is 7h 30m rather than a negative number. A day emptied
+back out is deleted rather than stored as a husk. A meal or a visit already
+written down is clicked to change (`updateMeal`, `updateVisit`) and binned to
+remove; re-timing one is how it moves to another part of the day, exactly as it
+is for a routine task.
+
+`diet.ts` is the menu those meals are picked off, and it is not a record of
+anything: it is the standing list of dishes eaten often enough to be worth a chip.
+A dish carries the day parts it belongs at, and one tagged with none of them is
+eaten at any hour and shows under all three (`dishesForPart`). Taking a dish off
+the menu leaves every meal already logged from it alone — the day log stores the
+name, not a reference. Nothing is seeded, because what somebody eats is not
+something to guess at; the menu fills up from the **Keep** button beside the meal
+form, which puts what you just typed on the menu tagged with that part. Names are
+unique case-insensitively, so `addDish` and `updateDish` both refuse a duplicate
+rather than growing a second chip for the same thing.
+`components/routines/diet-menu.tsx` holds both halves: `DishChips`, the tap-to-log
+row inside each part, and `DietMenuPanel`, the whole menu behind the salad icon in
+the day's heading — one panel rather than three, because a dish moves between the
+parts by its tags and three editors would hide that.
+
+The summary page is a chosen date range (`summariseRange`,
+`components/routines/lifestyle-summary.tsx`), opening on the week ending today and
+staying where it is put after that. Averages are taken over the days that have the thing written down,
+not over the whole range — three logged days out of thirty read as three days of
+habit rather than twenty-seven lie-ins. Bedtimes are averaged with anything before
+noon counted past 24:00, so 23:40 and 00:20 average to 00:00 instead of to midday.
+The day-by-day list keeps the blank days visible, because a gap is the finding. A show is not a routine: it comes
+out whether or not you are there for it, so it holds a weekday, an optional time
+and the episode still to come, and `markWatched` moves it on to the next one while
+the weekday carries it into next week.
+
+The routines themselves are three regions, one per cadence. The daily region is
+the week: a Sun-to-Sat strip of that week's
+days, and the selected day split into **morning (until 12:00), noon (12:00–17:00)
+and evening (from 17:00)** by `partOfDay`/`splitByPart`. A task is placed by its own
+time, falling back to its group's; anything untimed sits in the morning. Stock
+routines have a standing state rather than a time of day, so they keep a list of
+their own below the three parts rather than being bucketed.
+
+Within a part the tasks are gathered back under the group they came from
+(`gatherByGroup`), each group sitting where its earliest task falls. A named group
+puts its name above its tasks; an unnamed one is only there to hold them, so it
+renders as a plain list. That is the card only — the editor behind the pencil
+lists rows by routine, since group names there would get between the rows being
+edited.
+
+Each part is edited on its own (`components/routines/part-editor.tsx`): the pencil
+swaps that part's tick list for the same tasks as things to rename, re-time or
+remove, plus a form adding to that part. A task added there always carries a time
+of `DAY_PART_DEFAULT_TIME` — an empty one would inherit its group's and could land
+in a different part — and goes into the group `groupForPart` picks. Re-timing a
+task in one part's editor is how it moves to another.
 
 Three of them carry dates, which is the other easy mix-up. A **dated milestone**
 (`milestones.ts`, `range`) runs *between* two days and shows the work done against

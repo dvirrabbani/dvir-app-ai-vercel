@@ -32,7 +32,7 @@ import {
   updateRoutine,
   updateTask,
 } from '@/lib/routines';
-import { IconButton, fieldClass } from '@/components/calendar/shared';
+import { IconButton, fieldClass, timeFieldClass } from '@/components/routines/shared';
 
 const MONTH_DAYS = Array.from({ length: 31 }, (_, index) => index + 1);
 
@@ -118,7 +118,26 @@ function GroupDayPicker({ routine, group }: { routine: Routine; group: RoutineGr
 /*  Tasks                                                                     */
 /* -------------------------------------------------------------------------- */
 
-function TaskRow({ routine, group, task }: { routine: Routine; group: RoutineGroup; task: RoutineTask }) {
+/**
+ * A task as something to change rather than to tick off: click the title to
+ * rename it, set when it falls and how many times a day, or remove it. The
+ * routines page draws this both under a group and under a part of the day.
+ */
+export function EditableTaskRow({
+  routine,
+  group,
+  task,
+  inheritedTime,
+}: {
+  routine: Routine;
+  group: RoutineGroup;
+  task: RoutineTask;
+  /**
+   * The time the task ends up at when it has none of its own — its group's.
+   * Shown greyed, so a row placed by its group does not look unplaced.
+   */
+  inheritedTime?: string;
+}) {
   const [editing, setEditing] = useState(false);
   const [draftTitle, setDraftTitle] = useState(task.title);
   const [draftTime, setDraftTime] = useState(task.time);
@@ -171,7 +190,7 @@ function TaskRow({ routine, group, task }: { routine: Routine; group: RoutineGro
                 value={draftTime}
                 onChange={(e) => setDraftTime(e.target.value)}
                 aria-label={`Time for ${task.title}`}
-                className={`${fieldClass} w-auto`}
+                className={timeFieldClass}
               />
             </label>
             <label className="flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -211,12 +230,20 @@ function TaskRow({ routine, group, task }: { routine: Routine; group: RoutineGro
 
   return (
     <li className="flex items-center gap-2 rounded-lg bg-black/[0.03] px-3 py-2 dark:bg-white/[0.04]">
-      {task.time && (
+      {task.time ? (
         <span className="inline-flex shrink-0 items-center gap-1 text-xs tabular-nums text-[#4338CA] dark:text-[#A5B4FC]">
           <Clock className="h-3 w-3" />
           {task.time}
         </span>
-      )}
+      ) : inheritedTime ? (
+        <span
+          className="inline-flex shrink-0 items-center gap-1 text-xs tabular-nums text-muted-foreground"
+          title={`From ${group.title || 'its group'}`}
+        >
+          <Clock className="h-3 w-3" />
+          {inheritedTime}
+        </span>
+      ) : null}
       {task.target > 1 && (
         <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-black/[0.06] px-1.5 text-[10px] font-medium tabular-nums text-foreground/70 dark:bg-white/10">
           <Repeat2 className="h-3 w-3" />
@@ -306,7 +333,7 @@ function NewTaskForm({ routine, group }: { routine: Routine; group: RoutineGroup
               value={time}
               onChange={(e) => setTime(e.target.value)}
               aria-label={`Time for the new task in ${group.title || routine.title}`}
-              className={`${fieldClass} sm:w-32`}
+              className={`${timeFieldClass} w-full sm:w-32`}
             />
             <input
               type="number"
@@ -378,7 +405,7 @@ function GroupEditor({ routine, group, only }: { routine: Routine; group: Routin
               value={group.time}
               onChange={(e) => updateGroup(routine.id, group.id, { time: e.target.value })}
               aria-label={`Time for ${group.title || 'this group'}`}
-              className={`${fieldClass} w-auto`}
+              className={timeFieldClass}
             />
           </label>
         )}
@@ -396,7 +423,7 @@ function GroupEditor({ routine, group, only }: { routine: Routine; group: Routin
         {group.tasks.length > 0 && (
           <ul className="space-y-1.5">
             {group.tasks.map((task) => (
-              <TaskRow key={task.id} routine={routine} group={group} task={task} />
+              <EditableTaskRow key={task.id} routine={routine} group={group} task={task} />
             ))}
           </ul>
         )}

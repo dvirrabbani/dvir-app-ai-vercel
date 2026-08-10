@@ -18,6 +18,7 @@
  */
 
 import { fromDateKey, isValidDateKey, toDateKey } from '@/lib/calendar';
+import { DAY_PARTS, DayPart, partOfDay } from '@/lib/day-parts';
 
 export type RoutineCadence = 'daily' | 'weekly' | 'monthly';
 
@@ -287,6 +288,74 @@ export function occurrencesOn(routines: Routine[], cadence: RoutineCadence, date
   }
 
   return found.sort(byTimeThen);
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Parts of the day                                                          */
+/* -------------------------------------------------------------------------- */
+
+// The three stretches themselves live in `lib/day-parts.ts`: the day log beside
+// these routines is placed by the same clock, and neither owns it.
+
+/**
+ * A day's tasks gathered into the three parts, each read down the clock. The
+ * groups they came from are dropped: the point of this view is when something
+ * happens, not which sitting it belongs to.
+ */
+export function splitByPart(groups: GroupOccurrence[]): Record<DayPart, TaskOccurrence[]> {
+  const parts: Record<DayPart, TaskOccurrence[]> = { morning: [], noon: [], evening: [] };
+
+  for (const group of groups) {
+    for (const task of group.tasks) parts[partOfDay(task.time)].push(task);
+  }
+
+  // A stable sort, so tasks sharing a time — untimed ones especially — keep the
+  // order their groups were written in.
+  for (const part of DAY_PARTS) parts[part].sort((a, b) => (a.time || '').localeCompare(b.time || ''));
+
+  return parts;
+}
+
+export interface PartGroup {
+  routine: Routine;
+  group: RoutineGroup;
+  tasks: TaskOccurrence[];
+}
+
+/**
+ * A part of the day's tasks gathered back under the groups they came from, so a
+ * sitting with a name — the morning round, the upper body session — is read as
+ * one thing rather than as loose lines.
+ *
+ * Each group sits where its earliest task falls, which keeps the part roughly in
+ * clock order without splitting a group across it.
+ */
+export function gatherByGroup(tasks: TaskOccurrence[]): PartGroup[] {
+  const byGroup = new Map<string, PartGroup>();
+
+  for (const occurrence of tasks) {
+    // Group ids are unique on their own, but a corrupt store could repeat one
+    // across routines; pairing them keeps two routines' groups apart regardless.
+    const key = `${occurrence.routine.id}|${occurrence.group.id}`;
+    const block = byGroup.get(key);
+
+    if (block) block.tasks.push(occurrence);
+    else byGroup.set(key, { routine: occurrence.routine, group: occurrence.group, tasks: [occurrence] });
+  }
+
+  return [...byGroup.values()];
+}
+
+/**
+ * Where a task added to a part of the day belongs. A group sitting in that part
+ * already is the obvious home — a new morning task joins the morning round —
+ * and otherwise it goes in the routine's first group, since the time it carries
+ * is what places it either way. Null only for a routine holding no groups at
+ * all, which nothing on the page can produce but storage can.
+ */
+export function groupForPart(routine: Routine, part: DayPart): RoutineGroup | null {
+  const matching = routine.groups.find((group) => group.time && partOfDay(group.time) === part);
+  return matching ?? routine.groups[0] ?? null;
 }
 
 export interface DayProgress {

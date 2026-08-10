@@ -3,7 +3,7 @@
 import { useCallback, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { ArrowLeft, ChevronLeft, ChevronRight, Plus, Trash2, Pencil, Check, Clock, CalendarDays } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, Plus, Trash2, Pencil, Check, Clock, CalendarDays, Repeat } from 'lucide-react';
 import {
   CalendarEvent,
   NOTE_MAX_LENGTH,
@@ -13,13 +13,11 @@ import {
   deleteEvent,
   formatDayTitle,
   formatMonthTitle,
-  fromDateKey,
   monthGrid,
   toDateKey,
   updateEvent,
 } from '@/lib/calendar';
 import { useCalendar } from '@/lib/use-calendar';
-import { RoutinesSection } from '@/components/calendar/routines-section';
 import { ACCENT, IconButton, cardClass, fieldClass } from '@/components/calendar/shared';
 
 /**
@@ -57,16 +55,6 @@ export default function CalendarPage() {
     setSelected(toDateKey(now));
   }, []);
 
-  /**
-   * Picking a day from a routine calendar brings the month above along with it,
-   * so the page never shows August at the top while September is selected.
-   */
-  const selectDay = useCallback((key: string) => {
-    setSelected(key);
-    const date = fromDateKey(key);
-    setCursor({ year: date.getFullYear(), month: date.getMonth() });
-  }, []);
-
   const selectedEvents = byDate.get(selected) ?? [];
 
   return (
@@ -90,6 +78,16 @@ export default function CalendarPage() {
           <p className="max-w-2xl text-base text-muted-foreground md:text-lg">
             Pick a day and add what is happening. Everything stays in this browser.
           </p>
+
+          {/* Routines used to sit under this page; they have a page of their own
+              now, and this is the way across. */}
+          <Link
+            href="/routines"
+            className="mt-4 inline-flex items-center gap-2 rounded-full border border-gray-200 px-4 py-2 text-sm font-medium text-foreground transition-colors hover:border-[#FF4D8E]/40 dark:border-white/10"
+          >
+            <Repeat className="h-4 w-4" />
+            The things that come round again are in Routines
+          </Link>
         </motion.header>
 
         {/* Month */}
@@ -186,7 +184,7 @@ export default function CalendarPage() {
         </section>
 
         {/* Selected day */}
-        <section className={`${cardClass} mb-6`}>
+        <section className={`${cardClass} mb-10`}>
           <div className="mb-4 flex items-center gap-2">
             <CalendarDays className="h-5 w-5 text-[#FF4D8E]" />
             <h2 dir="auto" className="text-lg font-semibold text-foreground md:text-xl">
@@ -208,8 +206,6 @@ export default function CalendarPage() {
             </ul>
           )}
         </section>
-
-        <RoutinesSection selected={selected} onSelect={selectDay} />
       </div>
     </main>
   );
