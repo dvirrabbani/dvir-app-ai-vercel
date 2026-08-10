@@ -582,7 +582,11 @@ html, body {
 .rte-content hr {
   margin: 2rem 0;
   border: 0;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid rgba(0, 0, 0, 0.14);
+}
+
+.dark .rte-content hr {
+  border-top-color: rgba(255, 255, 255, 0.16);
 }
 
 /* Tables scroll inside a strip of their own rather than pushing the page
