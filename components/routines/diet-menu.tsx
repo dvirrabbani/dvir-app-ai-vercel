@@ -11,9 +11,20 @@
  */
 
 import { useCallback, useState } from 'react';
-import { Plus, Salad, Trash2 } from 'lucide-react';
+import { Plus, Salad, Trash2, X } from 'lucide-react';
 import { DAY_PARTS, DAY_PART_LABELS, DayPart } from '@/lib/day-parts';
-import { DISH_MAX_LENGTH, Dish, addDish, deleteDish, updateDish } from '@/lib/diet';
+import {
+  DISH_MAX_LENGTH,
+  Dish,
+  INGREDIENT_MAX_LENGTH,
+  MAX_INGREDIENTS,
+  addDish,
+  addIngredient,
+  deleteDish,
+  describeDish,
+  removeIngredient,
+  updateDish,
+} from '@/lib/diet';
 import { SmallButton, inlineFieldClass } from '@/components/routines/shared';
 
 /** Literal greys: `text-muted-foreground` resolves to nothing in this project. */
@@ -27,6 +38,9 @@ const MUTED = 'text-[#4B5563] dark:text-[#9CA3AF]';
  * What is on the menu for this stretch of the day. Tapping one writes it down at
  * the time in the field below, which is the whole point of keeping the list: the
  * meal you eat every morning should not be typed out every morning.
+ *
+ * A meal made of things says so on the chip, under its name — otherwise two
+ * plates called "the usual" would be one chip apart and indistinguishable.
  */
 export function DishChips({ dishes, onPick }: { dishes: Dish[]; onPick: (name: string) => void }) {
   if (dishes.length === 0) return null;
@@ -37,13 +51,20 @@ export function DishChips({ dishes, onPick }: { dishes: Dish[]; onPick: (name: s
         <button
           key={dish.id}
           type="button"
-          onClick={() => onPick(dish.name)}
-          title={`Write down ${dish.name}`}
+          onClick={() => onPick(describeDish(dish))}
+          title={`Write down ${describeDish(dish)}`}
           className="inline-flex max-w-full items-center gap-1 rounded-full border border-gray-200 bg-white/60 px-2 py-0.5 text-xs text-[#1C1C1E] transition-colors hover:border-[#FF4D8E]/50 hover:text-[#D81B60] dark:border-white/10 dark:bg-white/5 dark:text-white dark:hover:text-[#FF9EC1]"
         >
           <Plus className="h-3 w-3 shrink-0" aria-hidden />
-          <span dir="auto" className="min-w-0 truncate">
-            {dish.name}
+          <span className="flex min-w-0 flex-col items-start leading-tight">
+            <span dir="auto" className="max-w-full truncate">
+              {dish.name}
+            </span>
+            {dish.ingredients.length > 0 && (
+              <span dir="auto" className={`max-w-full truncate text-[11px] ${MUTED}`}>
+                {dish.ingredients.join(', ')}
+              </span>
+            )}
           </span>
         </button>
       ))}
@@ -78,9 +99,85 @@ function PartToggle({ part, on, onClick }: { part: DayPart; on: boolean; onClick
 }
 
 /**
- * A dish on the menu: its name, when it is eaten, and the bin. The name commits
- * when you leave the field or press Enter — a write per keystroke would go to
- * storage forty times for one word.
+ * What a meal is made of: one line per thing on the plate, each with its own
+ * cross, and a field to add the next. It sits under the dish rather than behind
+ * anything, because a meal is exactly the sum of these and hiding them would
+ * leave two plates looking like the same chip.
+ */
+function IngredientEditor({ dish, onError }: { dish: Dish; onError: (message: string) => void }) {
+  const [draft, setDraft] = useState('');
+
+  const add = useCallback(() => {
+    if (!draft.trim()) return;
+
+    if (!addIngredient(dish.id, draft)) {
+      onError(
+        dish.ingredients.length >= MAX_INGREDIENTS
+          ? `A meal holds ${MAX_INGREDIENTS} things.`
+          : 'That is already in this meal.'
+      );
+      return;
+    }
+
+    setDraft('');
+    onError('');
+  }, [dish.id, dish.ingredients.length, draft, onError]);
+
+  return (
+    <div className="flex flex-wrap items-center gap-1 pl-1">
+      {dish.ingredients.map((ingredient) => (
+        <span
+          key={ingredient}
+          className="inline-flex max-w-full items-center gap-0.5 rounded-full border border-gray-200 bg-white/60 py-0.5 pl-2 pr-0.5 text-xs text-[#1C1C1E] dark:border-white/10 dark:bg-white/5 dark:text-white"
+        >
+          <span dir="auto" className="min-w-0 truncate">
+            {ingredient}
+          </span>
+          <button
+            type="button"
+            onClick={() => removeIngredient(dish.id, ingredient)}
+            title={`Take ${ingredient} out of ${dish.name}`}
+            className={`shrink-0 rounded-full p-0.5 transition-colors hover:text-[#D81B60] ${MUTED}`}
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </span>
+      ))}
+
+      {dish.ingredients.length < MAX_INGREDIENTS && (
+        <input
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            onError('');
+          }}
+          onBlur={add}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              add();
+            }
+          }}
+          dir="auto"
+          maxLength={INGREDIENT_MAX_LENGTH}
+          placeholder={dish.ingredients.length === 0 ? 'What is in it? (chicken, rice…)' : 'And…'}
+          aria-label={`Something in ${dish.name}`}
+          // A basis rather than a width: the field drops to a line of its own
+          // once the chips have taken the row, instead of being squeezed to a
+          // few unusable pixels on a phone. The padding is the field's own —
+          // `px-*`/`py-*` written here lose to the base by sheet order, the
+          // same trap `shared.tsx` keeps the width off the base for.
+          className={`${inlineFieldClass} min-w-0 flex-1 basis-32 text-xs`}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * A dish on the menu: its name, when it is eaten, what it is made of, and the
+ * bin. The name commits when you leave the field or press Enter — a write per
+ * keystroke would go to storage forty times for one word.
  */
 function DishRow({ dish, onError }: { dish: Dish; onError: (message: string) => void }) {
   const [draft, setDraft] = useState(dish.name);
@@ -118,32 +215,36 @@ function DishRow({ dish, onError }: { dish: Dish; onError: (message: string) => 
   );
 
   return (
-    <li className="flex flex-wrap items-center gap-1.5 rounded-lg bg-black/[0.03] p-1.5 dark:bg-white/[0.04]">
-      <input
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            e.currentTarget.blur();
-          }
-        }}
-        dir="auto"
-        maxLength={DISH_MAX_LENGTH}
-        aria-label={`Rename ${dish.name}`}
-        className={`${inlineFieldClass} min-w-32 flex-1 px-2 py-1`}
-      />
+    <li className="space-y-1.5 rounded-lg bg-black/[0.03] p-1.5 dark:bg-white/[0.04]">
+      <div className="flex flex-wrap items-center gap-1.5">
+        <input
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              e.currentTarget.blur();
+            }
+          }}
+          dir="auto"
+          maxLength={DISH_MAX_LENGTH}
+          aria-label={`Rename ${dish.name}`}
+          className={`${inlineFieldClass} min-w-32 flex-1 px-2 py-1`}
+        />
 
-      <span className="flex shrink-0 items-center gap-1">
-        {DAY_PARTS.map((part) => (
-          <PartToggle key={part} part={part} on={dish.parts.includes(part)} onClick={() => toggle(part)} />
-        ))}
-      </span>
+        <span className="flex shrink-0 items-center gap-1">
+          {DAY_PARTS.map((part) => (
+            <PartToggle key={part} part={part} on={dish.parts.includes(part)} onClick={() => toggle(part)} />
+          ))}
+        </span>
 
-      <SmallButton title={`Take ${dish.name} off the menu`} destructive onClick={() => deleteDish(dish.id)}>
-        <Trash2 className="h-3.5 w-3.5" />
-      </SmallButton>
+        <SmallButton title={`Take ${dish.name} off the menu`} destructive onClick={() => deleteDish(dish.id)}>
+          <Trash2 className="h-3.5 w-3.5" />
+        </SmallButton>
+      </div>
+
+      <IngredientEditor dish={dish} onError={onError} />
     </li>
   );
 }
@@ -192,7 +293,8 @@ export function DietMenuPanel({ menu }: { menu: Dish[] }) {
         </ul>
       ) : (
         <p className={`mb-2 text-xs ${MUTED}`}>
-          Nothing on the menu yet. Add what you eat often here, or write down a meal below and keep it.
+          Nothing on the menu yet. Add what you eat often here, or write down a meal below and keep it. A meal can be a
+          whole plate — name it, then put the chicken, the rice and the salad under it.
         </p>
       )}
 
@@ -211,7 +313,7 @@ export function DietMenuPanel({ menu }: { menu: Dish[] }) {
           }}
           dir="auto"
           maxLength={DISH_MAX_LENGTH}
-          placeholder="A dish you eat often"
+          placeholder="A meal or dish you eat often"
           aria-label="A dish to put on the menu"
           className={`${inlineFieldClass} min-w-40 flex-1 px-3 py-1.5 text-sm`}
         />
@@ -229,7 +331,7 @@ export function DietMenuPanel({ menu }: { menu: Dish[] }) {
 
       <p className={`mt-2 text-xs ${MUTED}`}>
         M, N and E are the stretches a dish is eaten at. One with none of them picked is eaten at any hour and shows
-        under all three.
+        under all three. What you put under a meal goes into the day with it, so the record still says there was rice.
       </p>
     </div>
   );
