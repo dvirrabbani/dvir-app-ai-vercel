@@ -6,6 +6,7 @@ import { Github, Linkedin, Twitter, Mail } from 'lucide-react';
 const footerLinks = [
   { href: '#about', label: 'About' },
   { href: '/calendar', label: 'Calendar' },
+  { href: '/routines', label: 'Routines' },
   { href: '#insights', label: 'AI & Dev' },
   { href: '/contact', label: 'Contact' },
 ];

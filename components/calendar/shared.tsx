@@ -1,4 +1,8 @@
-/** Shared between the calendar page and the routines section beneath it. */
+/**
+ * The bits the calendar page draws with. The routines page keeps its own copy in
+ * `components/routines/shared.tsx` — the two pages look alike deliberately, but
+ * neither reaches into the other.
+ */
 
 export const fieldClass =
   'w-full rounded-xl border border-gray-200 bg-white/60 px-4 py-2.5 text-sm text-[#1C1C1E] outline-none transition-colors placeholder:text-gray-500 focus:border-[#FF4D8E]/50 focus:ring-2 focus:ring-[#FF4D8E]/20 dark:border-white/10 dark:bg-white/5 dark:text-white dark:placeholder:text-gray-400';
