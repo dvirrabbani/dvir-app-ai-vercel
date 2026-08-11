@@ -2,7 +2,16 @@
 
 import { useRef, useState } from 'react';
 import { motion } from 'framer-motion';
-import { AlertTriangle, Check, Download, FileJson, Upload, X } from 'lucide-react';
+import {
+  AlertTriangle,
+  Check,
+  CloudDownload,
+  Download,
+  FileJson,
+  Loader2,
+  Upload,
+  X,
+} from 'lucide-react';
 import {
   BackupEntry,
   BackupFile,
@@ -13,6 +22,7 @@ import {
   parseBackup,
   summariseBackup,
 } from '@/lib/backup';
+import { driveConfigured, pickBackupFile, prepareDrivePicker } from '@/lib/google-drive';
 import { useDeviceData } from '@/lib/use-backup';
 
 /** A file that has been read and understood, waiting to be said yes to. */
@@ -20,6 +30,8 @@ interface Pending {
   file: BackupFile;
   entries: BackupEntry[];
   name: string;
+  /** Shown beside the date, because "which copy is this" is the whole question. */
+  fromDrive: boolean;
 }
 
 function formatExported(iso: string): string {
@@ -34,20 +46,24 @@ export default function BackupPage() {
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  const [opening, setOpening] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Read from build-time values, so it agrees with itself on the server and in
+  // the browser and does not need holding back until hydration.
+  const driveReady = driveConfigured();
 
   const handleDownload = () => {
     downloadBackup(collectBackup());
     setNote(null);
   };
 
-  const handleFile = async (file: File | undefined) => {
-    if (!file) return;
-
+  /** The one place a file's text becomes something to say yes to, whichever way in it came. */
+  const ingest = (name: string, text: string, fromDrive: boolean) => {
     setNote(null);
     setPending(null);
 
-    const result = parseBackup(await file.text());
+    const result = parseBackup(text);
     if (!result.ok) {
       setError(result.error);
       return;
@@ -57,8 +73,34 @@ export default function BackupPage() {
     setPending({
       file: result.file,
       entries: summariseBackup(result.file.data),
-      name: file.name,
+      name,
+      fromDrive,
     });
+  };
+
+  const handleFile = async (file: File | undefined) => {
+    if (!file) return;
+    ingest(file.name, await file.text(), false);
+  };
+
+  const handleDrive = async () => {
+    setNote(null);
+    setError(null);
+    setPending(null);
+    setOpening(true);
+
+    try {
+      const picked = await pickBackupFile();
+      // Null is a closed dialog. Somebody who changed their mind does not need
+      // telling what they just did.
+      if (picked) ingest(picked.name, picked.text, true);
+    } catch (problem) {
+      setError(
+        problem instanceof Error ? problem.message : 'Google Drive could not be opened just now.'
+      );
+    } finally {
+      setOpening(false);
+    }
   };
 
   const handleApply = () => {
@@ -163,7 +205,9 @@ export default function BackupPage() {
             Load a copy onto this device
           </h2>
           <p className="mb-4 text-sm text-black/55 dark:text-white/55">
-            Pick a file you took off another device. You will see what is in it before anything changes.
+            {driveReady
+              ? 'Pick a file you took off another device — from this computer, or straight out of Google Drive. You will see what is in it before anything changes.'
+              : 'Pick a file you took off another device. You will see what is in it before anything changes.'}
           </p>
 
           <label
@@ -197,6 +241,35 @@ export default function BackupPage() {
             <span className="text-xs text-black/50 dark:text-white/50">or drop it here</span>
           </label>
 
+          {/* Shown either way. A button that quietly is not there leaves the one
+              person who could fix it with nothing to go on — the same reason this
+              site says out loud that it has no server. */}
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <button
+              onClick={() => void handleDrive()}
+              // Both Google scripts are fetched on the way to the button: the
+              // permission window has to open inside the click that asked for
+              // it, and a cold fetch of them is long enough to lose that and
+              // be taken for a pop-up.
+              onPointerEnter={prepareDrivePicker}
+              onFocus={prepareDrivePicker}
+              disabled={opening || !driveReady}
+              className="inline-flex items-center gap-2 rounded-xl border border-black/15 px-4 py-2.5 text-sm font-medium text-[#171717] transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent dark:border-white/15 dark:text-[#FAFAFA] dark:hover:bg-white/10 dark:disabled:hover:bg-transparent"
+            >
+              {opening ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <CloudDownload className="h-4 w-4" />
+              )}
+              {opening ? 'Opening Drive…' : 'Open from Google Drive'}
+            </button>
+            <span className="text-xs text-black/50 dark:text-white/50">
+              {driveReady
+                ? 'Google asks you which file, and this page only ever sees that one.'
+                : 'Waiting on two Google keys in this site’s own settings — see .env.example.'}
+            </span>
+          </div>
+
           {error && (
             <div className="mt-4 flex items-start gap-3 rounded-xl bg-[#C62828]/10 p-4 text-sm text-[#8E1616] dark:text-[#FFB4AB]">
               <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
@@ -224,6 +297,7 @@ export default function BackupPage() {
                   </p>
                   <p className="text-xs text-black/50 dark:text-white/50">
                     Taken on {formatExported(pending.file.exportedAt)}
+                    {pending.fromDrive && ' · from Google Drive'}
                   </p>
                 </div>
               </div>
@@ -280,8 +354,15 @@ export default function BackupPage() {
 
         <p className="mt-6 text-sm text-black/50 dark:text-white/50">
           The file is plain JSON and never leaves your devices unless you send it somewhere — put it in Drive,
-          iCloud or a chat to yourself, and it is readable in any text editor. The blog&rsquo;s image folder is
-          the one thing that cannot travel: it is a pointer to a folder on one machine.
+          iCloud or a chat to yourself, and it is readable in any text editor.{' '}
+          {driveReady && (
+            <>
+              One left in Drive can be opened above without downloading it first — Google hands it to this
+              tab, not to this site, there being still no server here to hand it to.{' '}
+            </>
+          )}
+          The blog&rsquo;s image folder is the one thing that cannot travel: it is a pointer to a folder on
+          one machine.
         </p>
       </div>
     </main>
