@@ -8,14 +8,21 @@
  * Averages are taken over the days that have the thing recorded rather than over
  * the whole range, so a fortnight with three days filled in reads as three days'
  * worth of habit rather than as eleven days of nothing.
+ *
+ * Reading a week back is also where the gaps in it show, so any day in the
+ * range opens the same editor the routines page uses (`DayLogEditor`) rather
+ * than sending you back there to pick the day again. It writes through
+ * `lib/lifestyle.ts` like everything else, so the figures above re-add
+ * themselves as soon as a night is filled in.
  */
 
 import { useCallback, useMemo, useState } from 'react';
-import { ChartColumn, Droplets, Utensils } from 'lucide-react';
+import { ChartColumn, ChevronDown, Droplets, Utensils } from 'lucide-react';
 import { formatDayTitle, fromDateKey } from '@/lib/calendar';
 import { DAY_PARTS, DAY_PART_LABELS } from '@/lib/day-parts';
 import { DaySummary, MealTally, RangeSummary, formatDuration, shiftDay } from '@/lib/lifestyle';
-import { useLogRange } from '@/lib/use-lifestyle';
+import { useDayLog, useLogRange } from '@/lib/use-lifestyle';
+import { DayLogEditor } from '@/components/routines/day-log-editor';
 import {
   RegionHeader,
   cardClass,
@@ -180,38 +187,87 @@ function MealsEaten({ meals }: { meals: MealTally[] }) {
   );
 }
 
-function DayRow({ day, scale }: { day: DaySummary; scale: number }) {
+/**
+ * The day opened up. The log is read here rather than in the row so that a
+ * closed day costs nothing, and it follows the same store as the summary
+ * around it — a bedtime typed in below moves the average above it at once.
+ */
+function DayEditor({ date, today }: { date: string; today: string }) {
+  const { log, hydrated } = useDayLog(date);
+
+  if (!hydrated) {
+    return <div className="mt-2 h-24 animate-pulse rounded-xl bg-foreground/5" aria-hidden />;
+  }
+
   return (
-    <li className="flex flex-wrap items-center gap-x-2 gap-y-1 rounded-lg px-1 py-1 text-xs odd:bg-black/[0.02] dark:odd:bg-white/[0.03]">
-      <span className={`w-24 shrink-0 tabular-nums ${day.logged ? 'text-foreground' : 'text-muted-foreground'}`}>
-        {shortDate(day.date)}
-      </span>
+    <div className="mt-2 rounded-xl border border-black/[0.06] p-2 dark:border-white/[0.08]">
+      <p className="mb-2 text-xs text-muted-foreground">{formatDayTitle(date)}</p>
+      {/* One column: this is already inside the day-by-day list, which is
+          narrower than the card the routines page gives the same editor. */}
+      <DayLogEditor date={date} log={log} now={date === today ? new Date() : null} columns={1} />
+    </div>
+  );
+}
 
-      {day.asleep === null ? (
-        <span className="min-w-32 flex-1 text-muted-foreground">
-          {day.logged ? 'No night recorded' : 'Nothing logged'}
-        </span>
-      ) : (
-        <span className="flex min-w-32 flex-1 items-center gap-2">
-          <Bar value={day.asleep} of={scale} tone="bg-[#FF4D8E]" />
-          <span className="w-14 shrink-0 tabular-nums text-foreground">{formatDuration(day.asleep)}</span>
-        </span>
-      )}
+function DayRow({
+  day,
+  scale,
+  today,
+  open,
+  onToggle,
+}: {
+  day: DaySummary;
+  scale: number;
+  today: string;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <li className="rounded-lg text-xs odd:bg-black/[0.02] dark:odd:bg-white/[0.03]">
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={open}
+        title={open ? `Close ${formatDayTitle(day.date)}` : `Write down ${formatDayTitle(day.date)}`}
+        className="flex w-full flex-wrap items-center gap-x-2 gap-y-1 rounded-lg px-1 py-1 text-left transition-colors hover:bg-[#FF4D8E]/[0.06]"
+      >
+        <ChevronDown
+          className={`h-3 w-3 shrink-0 text-muted-foreground transition-transform ${open ? 'rotate-180' : ''}`}
+          aria-hidden
+        />
 
-      <span className={`w-24 shrink-0 tabular-nums ${timeClass}`}>
-        {day.wokeAt && day.sleptAt ? `${day.sleptAt}→${day.wokeAt}` : day.wokeAt || day.sleptAt || ''}
-      </span>
+        <span className={`w-20 shrink-0 tabular-nums ${day.logged ? 'text-foreground' : 'text-muted-foreground'}`}>
+          {shortDate(day.date)}
+        </span>
 
-      <span className="flex w-16 shrink-0 items-center justify-end gap-2 tabular-nums text-muted-foreground">
-        <span className="inline-flex items-center gap-0.5" title={`${day.meals} meals`}>
-          <Utensils className="h-3 w-3" aria-hidden />
-          {day.meals}
+        {day.asleep === null ? (
+          <span className="min-w-32 flex-1 text-muted-foreground">
+            {day.logged ? 'No night recorded' : 'Nothing logged'}
+          </span>
+        ) : (
+          <span className="flex min-w-32 flex-1 items-center gap-2">
+            <Bar value={day.asleep} of={scale} tone="bg-[#FF4D8E]" />
+            <span className="w-14 shrink-0 tabular-nums text-foreground">{formatDuration(day.asleep)}</span>
+          </span>
+        )}
+
+        <span className={`w-24 shrink-0 tabular-nums ${timeClass}`}>
+          {day.wokeAt && day.sleptAt ? `${day.sleptAt}→${day.wokeAt}` : day.wokeAt || day.sleptAt || ''}
         </span>
-        <span className="inline-flex items-center gap-0.5" title={`${day.visits} bathroom visits`}>
-          <Droplets className="h-3 w-3" aria-hidden />
-          {day.visits}
+
+        <span className="flex w-16 shrink-0 items-center justify-end gap-2 tabular-nums text-muted-foreground">
+          <span className="inline-flex items-center gap-0.5" title={`${day.meals} meals`}>
+            <Utensils className="h-3 w-3" aria-hidden />
+            {day.meals}
+          </span>
+          <span className="inline-flex items-center gap-0.5" title={`${day.visits} bathroom visits`}>
+            <Droplets className="h-3 w-3" aria-hidden />
+            {day.visits}
+          </span>
         </span>
-      </span>
+      </button>
+
+      {open && <DayEditor date={day.date} today={today} />}
     </li>
   );
 }
@@ -232,6 +288,10 @@ export function LifestyleSummary({ selected }: { selected: string }) {
   // on. Both ends are the visitor's from then on.
   const [from, setFrom] = useState(() => shiftDay(selected, -6));
   const [to, setTo] = useState(selected);
+
+  // Which day is open for writing, if any. One at a time: the list is how you
+  // move between the days, and three editors down it would bury that.
+  const [openDay, setOpenDay] = useState<string | null>(null);
 
   const { summary, today, hydrated } = useLogRange(from, to);
 
@@ -318,8 +378,7 @@ export function LifestyleSummary({ selected }: { selected: string }) {
 
       {summary.logged === 0 ? (
         <p className="text-sm text-muted-foreground">
-          Nothing written down between these two days. Log a morning in <em>Your day</em> on the routines page and it
-          will start counting.
+          Nothing written down between these two days. Open one below and fill it in, and it will start counting.
         </p>
       ) : (
         <>
@@ -341,22 +400,36 @@ export function LifestyleSummary({ selected }: { selected: string }) {
           <PartSplit summary={summary} />
 
           <MealsEaten meals={summary.mealsEaten} />
-
-          <div className="mt-3 rounded-xl border border-black/[0.06] p-3 dark:border-white/[0.08]">
-            <p className="mb-2 text-xs font-medium uppercase tracking-wide text-muted-foreground">Day by day</p>
-            {/* Long ranges scroll inside the card rather than pushing the routines
-                below them off the bottom of the page. */}
-            <ul className="max-h-64 space-y-0.5 overflow-y-auto">
-              {summary.days.map((day) => (
-                <DayRow key={day.date} day={day} scale={scale} />
-              ))}
-            </ul>
-          </div>
         </>
       )}
 
+      {/* Outside the branch above: a range with nothing in it is exactly the one
+          you want to write into, and hiding the days would leave no way to. */}
+      <div className="mt-3 rounded-xl border border-black/[0.06] p-3 dark:border-white/[0.08]">
+        <div className="mb-2 flex flex-wrap items-center gap-x-2">
+          <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Day by day</p>
+          <span className="text-xs text-muted-foreground">Click a day to write it down or put it right</span>
+        </div>
+        {/* Long ranges scroll inside the card rather than pushing everything
+            below them off the bottom of the page. An open day needs more room
+            than a list of one-line rows does. */}
+        <ul className={`space-y-0.5 overflow-y-auto ${openDay ? 'max-h-[36rem]' : 'max-h-64'}`}>
+          {summary.days.map((day) => (
+            <DayRow
+              key={day.date}
+              day={day}
+              scale={scale}
+              today={today}
+              open={openDay === day.date}
+              onToggle={() => setOpenDay((current) => (current === day.date ? null : day.date))}
+            />
+          ))}
+        </ul>
+      </div>
+
       <p className="mt-2 text-xs text-muted-foreground">
-        Counted from the days written down on the routines page — {formatDayTitle(to)} is as far as this range reaches.
+        The same days the routines page writes — changing one here changes it there too. {formatDayTitle(to)} is as far
+        as this range reaches, and none of it leaves this browser.
       </p>
     </section>
   );

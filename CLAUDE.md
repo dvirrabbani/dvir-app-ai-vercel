@@ -65,9 +65,20 @@ day log are both placed by that same clock, and neither should own it.
 **day log** (`lifestyle.ts`) first, then the routines, then **what is on this
 week** (`entertainment.ts`). Reading a stretch of those days back is a page of its
 own, `app/routines/summary`, linked from under the day log — it wants the whole
-width, and it is not something you do while logging a meal. That inner route has a
+width, and reading a fortnight back is not something you do while logging lunch.
+That inner route has a
 `layout.tsx` for its metadata only: the navbar comes from `app/routines/layout.tsx`,
 which wraps it too, and rendering another would put two on the screen.
+
+The editor itself is neither page's:
+`components/routines/day-log-editor.tsx` holds it, and both render it against
+whatever day they mean. The routines page gives it the day picked below it, in
+three columns; every row of the summary's day-by-day list opens the same editor
+under itself in one column, because a week read back is where you notice that
+Tuesday's bedtime was never written down, and having to go back and re-pick
+Tuesday to fix it is what stops it being fixed. There is no save button on either
+— each field writes through `lifestyle.ts` as it is changed, so the averages
+above the open day re-add themselves as it is filled in.
 
 The day log is what actually happened — got up at, what you ate, every bathroom
 visit, went to sleep at — kept in the same three parts, with the wake-up at the top
@@ -120,7 +131,12 @@ here — the line is written by one and read apart by the other, and two copies 
 spelling, so a meal typed by hand one day and tapped off the menu the next is one
 thing eaten twice. Bedtimes are averaged with anything before
 noon counted past 24:00, so 23:40 and 00:20 average to 00:00 instead of to midday.
-The day-by-day list keeps the blank days visible, because a gap is the finding. A show is not a routine: it comes
+The day-by-day list keeps the blank days visible, because a gap is the finding —
+and now because a blank day is the one you open to fill in. That list is rendered
+outside the "nothing logged yet" branch for the same reason: a range with nothing
+in it is exactly the one worth writing into, and hiding the days would leave no
+way to. One day is open at a time, and the list is given more height while it is,
+since it is a scroll box sized for one-line rows. A show is not a routine: it comes
 out whether or not you are there for it, so it holds a weekday, an optional time
 and the episode still to come, and `markWatched` moves it on to the next one while
 the weekday carries it into next week.
