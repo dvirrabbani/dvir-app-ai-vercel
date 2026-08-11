@@ -191,6 +191,34 @@ no more, and it is the one type `compareCells` treats an empty cell as an answer
 rather than a blank, since "not ticked" is half the column rather than a gap in
 it. There is no editor: Enter, Space and a click all just turn the box over.
 
+**`select`** ("Pick from a list") is the same idea with more than two answers:
+the column keeps a list of choices (`Column.options`, on the column whatever its
+type is, so retyping loses the list no more than it loses the cells) and the cell
+keeps the *name* of the one that was picked. Not a reference — the name, matched
+case-insensitively by `sameOption`, which is why a column somebody has been
+typing "done" into by hand becomes a column of chips the moment the list catches
+up with it, and why the list panel offers to add every value already down the
+column (`unlistedValues`) rather than making somebody type them out again. A cell
+holding something the list does not offer keeps it and is drawn dashed: it is
+what somebody wrote, and a type only says how a string is read. Sorting follows
+the **order of the list**, not the alphabet — To do, Doing, Done is the whole
+point of putting them in an order — and off-list values rank after every listed
+one. Filtering offers `is`/`is not`/empty/not-empty and nothing else, with the
+choices themselves in the filter bar rather than a text box, since a chip is one
+of a set rather than a spelling.
+
+Both halves live in `components/document/cell-select.tsx`, the way the diet menu
+keeps its chips and its editor together: `OptionPicker` is what a cell opens —
+type to find, type something new and press Enter to put it on the list *and* in
+the cell — and `OptionListPanel`, behind "Edit the list" in the column's own
+menu, is where choices are renamed, reordered and removed. Renaming a choice
+carries every cell holding it, which is the one place a cell is rewritten by
+anything but typing in it; removing one leaves them exactly as they are, as the
+diet menu does. A chip's colour is its **place on the list** rather than a hash
+of its name or anything stored: a hash puts "To do" and "In progress" on the same
+tint about half the time, and a column where every chip is one colour is a column
+you have to read instead of glance at.
+
 A column type, **`note`** ("Text & pictures"), holds writing and
 screenshots in the same cell. The file names live on the row beside the cells
 (`Row.images`, column id → names) rather than inside the cell string, so
