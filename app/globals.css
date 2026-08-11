@@ -714,3 +714,83 @@ html, body {
   font-size: 0.8125rem;
   color: var(--muted-foreground);
 }
+
+/* ---------------------------------------------------------------------------
+   A table cell being written in.
+
+   The cell the reader sees is drawn by `Piece` and `blockClass` in
+   `components/document/rich-text.tsx`, in Tailwind classes on its spans. The
+   cell being *written* cannot be: half of what is in it is put there by the
+   browser's own commands, which leave a bare <b> or <mark> with no class on it.
+   So the same look is stated a second time here, as plain descendant rules.
+
+   The two have to match. The whole promise of that surface is that a cell looks
+   the same being written as it does written — every value below is the one in
+   the class list beside it over there, and changing one means changing both.
+   --------------------------------------------------------------------------- */
+.rich-cell b,
+.rich-cell strong {
+  font-weight: 600;
+}
+
+.rich-cell i,
+.rich-cell em {
+  font-style: italic;
+}
+
+.rich-cell s,
+.rich-cell strike,
+.rich-cell del {
+  text-decoration: line-through;
+}
+
+.rich-cell code {
+  border-radius: 0.25rem;
+  background-color: rgba(0, 0, 0, 0.06);
+  padding: 0.0625rem 0.25rem;
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 0.9em;
+}
+
+.dark .rich-cell code {
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.rich-cell mark {
+  border-radius: 3px;
+  background-color: #fde68a;
+  padding: 0 0.125rem;
+  color: #1f2937;
+}
+
+.dark .rich-cell mark {
+  background-color: #78350f;
+  color: #fef3c7;
+}
+
+/* Highlighted code wears the highlighter rather than code's own grey: two
+   backgrounds on one run leaves whichever wins looking like neither. */
+.rich-cell mark code,
+.rich-cell code mark {
+  background-color: transparent;
+  padding: 0;
+  color: inherit;
+}
+
+/* A title is a size rather than an <h1> — a grid full of headings would read to
+   a screen reader as a document with four hundred sections in it. */
+.rich-cell [data-title='1'] {
+  font-size: 1rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.rich-cell [data-title='2'] {
+  font-size: 0.875rem;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.rich-cell [data-title]:not(:first-child) {
+  margin-top: 0.375rem;
+}

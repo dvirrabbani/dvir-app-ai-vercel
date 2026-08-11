@@ -31,10 +31,15 @@ import {
   setCell,
 } from '@/lib/documents';
 import { discardTableImages } from '@/lib/image-folder';
-import { plainRichText, shortcutEdit } from '@/lib/rich-text';
+import { plainRichText, shortcutCommand } from '@/lib/rich-text';
 import { useFolderImage } from '@/lib/use-folder-image';
 import { VIEWER_MARK } from '@/components/document/picture-viewer';
-import { FormatToolbar, RichText, applyEdit } from '@/components/document/rich-text';
+import {
+  FormatToolbar,
+  RichCellEditor,
+  RichCellHandle,
+  RichText,
+} from '@/components/document/rich-text';
 import {
   PictureFolderButton,
   folderMessage,
@@ -229,8 +234,8 @@ export function NoteEditor({
 
   const box = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
-  /** The writing box, so the formatting buttons have something to act on. */
-  const field = useRef<HTMLTextAreaElement>(null);
+  /** The writing surface, so the formatting buttons have something to act on. */
+  const field = useRef<RichCellHandle>(null);
 
   /**
    * What the writing is committed from, and where to.
@@ -389,30 +394,35 @@ export function NoteEditor({
         </ul>
       )}
 
-      <textarea
-        autoFocus
+      {/* Written as it will be read — the same surface a plain text cell uses,
+          showing the bold word bold and never the markers that make it. */}
+      <RichCellEditor
         ref={field}
-        value={draft}
-        onChange={(event) => setDraft(event.target.value)}
+        value={stored}
+        max={CELL_MAX_LENGTH}
+        onChange={setDraft}
+        label={`${column.name} — what this cell says`}
         // The same marks as a plain text cell, on the same keys. Handled here
         // rather than on the panel, which is only listening for the two ways
-        // out of it.
+        // out of it — and Ctrl+Enter, one of those two, is let through.
         onKeyDown={(event) => {
-          const shortcut = shortcutEdit(event);
-          if (!shortcut || !field.current) return;
+          const command = shortcutCommand(event);
 
-          event.preventDefault();
-          applyEdit(field.current, shortcut, CELL_MAX_LENGTH, setDraft);
+          if (command) {
+            event.preventDefault();
+            field.current?.run(command);
+            return;
+          }
+
+          if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey) {
+            event.preventDefault();
+            field.current?.breakLine();
+          }
         }}
-        maxLength={CELL_MAX_LENGTH}
-        dir="auto"
-        rows={4}
-        placeholder="Write here, and paste a screenshot straight in"
-        aria-label={`${column.name} — what this cell says`}
-        className={`w-full resize-y rounded-lg border bg-white/70 px-2 py-1.5 text-sm outline-none transition-colors placeholder:text-gray-500 focus:border-[#FF4D8E]/50 focus:ring-2 focus:ring-[#FF4D8E]/20 dark:bg-white/5 dark:placeholder:text-gray-400 ${LINE} ${SOLID}`}
+        className={`max-h-64 w-full overflow-auto whitespace-pre-wrap break-words rounded-lg border bg-white/70 px-2 py-1.5 text-sm transition-colors focus:border-[#FF4D8E]/50 focus:ring-2 focus:ring-[#FF4D8E]/20 dark:bg-white/5 ${LINE} ${SOLID}`}
       />
 
-      <FormatToolbar field={field} max={CELL_MAX_LENGTH} onChange={setDraft} />
+      <FormatToolbar editor={field} />
 
       <div className="flex flex-wrap items-center gap-1.5">
         <button

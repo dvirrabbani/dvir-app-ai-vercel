@@ -60,10 +60,15 @@ import {
   visibleRows,
 } from '@/lib/documents';
 import { discardTableImages } from '@/lib/image-folder';
-import { shortcutEdit } from '@/lib/rich-text';
+import { shortcutCommand } from '@/lib/rich-text';
 import { NoteCellBody, NoteEditor } from '@/components/document/cell-note';
 import { PictureViewer } from '@/components/document/picture-viewer';
-import { FormatToolbar, RichText, applyEdit } from '@/components/document/rich-text';
+import {
+  FormatToolbar,
+  RichCellEditor,
+  RichCellHandle,
+  RichText,
+} from '@/components/document/rich-text';
 import { imageFrom, keepPicture } from '@/components/document/picture-folder';
 
 /** Literal greys: `text-muted-foreground` resolves to nothing in this project. */
@@ -364,21 +369,6 @@ function HeaderCell({
 /*  One cell                                                                  */
 /* -------------------------------------------------------------------------- */
 
-/**
- * A writing box exactly as tall as what is in it. The height is set from the
- * content rather than left to a scrollbar: a cell being written in shows the
- * whole of what it says, and the row it is in makes room for it.
- */
-function grow(field: HTMLTextAreaElement) {
-  field.style.height = 'auto';
-  field.style.height = `${field.scrollHeight}px`;
-}
-
-/** The same measurement on the way in — a cell can open on a paragraph. */
-function growToFit(field: HTMLTextAreaElement | null) {
-  if (field) grow(field);
-}
-
 function GridCell({
   row,
   column,
@@ -403,7 +393,9 @@ function GridCell({
   /** The rect goes with it: a picture cell opens a panel against itself. */
   onBeginEdit: (initial: string | undefined, rect: DOMRect | null) => void;
   onDraft: (next: string) => void;
-  onKeyDown: (event: React.KeyboardEvent) => void;
+  /** `read` is how the grid gets at what is in the cell: a text cell is written
+   *  in a surface with no `value` on it, so the box has to be asked. */
+  onKeyDown: (event: React.KeyboardEvent, read: () => string) => void;
   onCommit: (value: string) => void;
   onPasteImage: (blob: Blob) => void;
   onViewImage: (names: string[], at: number) => void;
@@ -411,8 +403,9 @@ function GridCell({
   label: string;
 }) {
   const box = useRef<HTMLDivElement>(null);
-  /** The box being typed in, so the formatting buttons have something to act on. */
-  const field = useRef<HTMLTextAreaElement>(null);
+  /** The surface being typed in, so the formatting buttons have something to
+   *  act on and the grid has something to read the cell out of. */
+  const field = useRef<RichCellHandle>(null);
   const type = column.type;
   const value = cellValue(row, column.id);
   const editing = draft !== null;
@@ -424,17 +417,6 @@ function GridCell({
   }, [active, editing]);
 
   if (editing) {
-    const shared = {
-      autoFocus: true,
-      value: draft,
-      maxLength: CELL_MAX_LENGTH,
-      dir: 'auto' as const,
-      'aria-label': label,
-      onKeyDown,
-      onBlur: (event: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-        onCommit(event.target.value),
-    };
-
     return (
       <td className={`border-b border-r p-0 ${LINE}`}>
         {type === 'text' ? (
@@ -442,41 +424,65 @@ function GridCell({
           // itself, so the formatting buttons sit inside the cell being written
           // in rather than looking like something floating over the next row.
           <div className={`bg-white ring-2 ring-inset ring-[#FF4D8E] dark:bg-[#26262A]`}>
-            {/* Text is written in a box that grows, not on a line: a cell can
-                hold a paragraph, and the whole of it should be visible while it
-                is being written rather than scrolling past a slot one line
-                tall. */}
-            <textarea
-              {...shared}
-              rows={1}
-              ref={(node) => {
-                field.current = node;
-                growToFit(node);
+            {/* Written as it will be read: the bold word is bold while it is
+                being typed and the markers never appear at all. The surface
+                grows with what is in it — a cell can hold a paragraph, and the
+                whole of it should be visible rather than scrolling past a slot
+                one line tall. */}
+            <RichCellEditor
+              ref={field}
+              value={draft}
+              max={CELL_MAX_LENGTH}
+              label={label}
+              onKeyDown={(event) => {
+                const command = shortcutCommand(event);
+
+                if (command) {
+                  event.preventDefault();
+                  field.current?.run(command);
+                  return;
+                }
+
+                /* A break inside the cell is Enter with **any** of Alt, Shift,
+                   Ctrl or Cmd held — Alt+Enter as in Excel, Shift+Enter as in
+                   most chat boxes, Ctrl+Enter for the people who reach for
+                   that. Which one a person tries first is a habit and none of
+                   them is wrong. Plain Enter means "done, next row down", which
+                   is what makes a column of a hundred rows quick, and it
+                   belongs to the grid below. */
+                if (event.key === 'Enter' && (event.altKey || event.shiftKey || event.ctrlKey || event.metaKey)) {
+                  event.preventDefault();
+                  field.current?.breakLine();
+                  return;
+                }
+
+                onKeyDown(event, () => field.current?.read() ?? draft);
               }}
-              onChange={(event) => {
-                grow(event.currentTarget);
-                onDraft(event.target.value);
+              onBlur={() => {
+                // Only while the surface is still there. A blur arriving as the
+                // cell closes would otherwise commit whatever an absent box
+                // reads as, which is nothing at all.
+                const handle = field.current;
+                if (handle) onCommit(handle.read());
               }}
-              className={`block w-full resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent px-2 py-1.5 text-sm leading-snug outline-none ${SOLID}`}
+              className={`block w-full whitespace-pre-wrap break-words px-2 py-1.5 text-sm leading-snug ${SOLID}`}
             />
 
             {/* Under the writing rather than over it: a cell is as narrow as it
                 has been dragged to, and a row of buttons above would have to
                 cover the heading or the row before. They wrap when there is no
                 room, and every one of them has a keystroke as well. */}
-            <FormatToolbar
-              field={field}
-              max={CELL_MAX_LENGTH}
-              onChange={(next) => {
-                if (field.current) grow(field.current);
-                onDraft(next);
-              }}
-              className={`border-t px-1 py-0.5 ${LINE}`}
-            />
+            <FormatToolbar editor={field} className={`border-t px-1 py-0.5 ${LINE}`} />
           </div>
         ) : (
           <input
-            {...shared}
+            autoFocus
+            value={draft}
+            maxLength={CELL_MAX_LENGTH}
+            dir="auto"
+            aria-label={label}
+            onKeyDown={(event) => onKeyDown(event, () => event.currentTarget.value)}
+            onBlur={(event) => onCommit(event.target.value)}
             type={type === 'date' ? 'date' : 'text'}
             inputMode={type === 'number' ? 'decimal' : undefined}
             onChange={(event) => onDraft(event.target.value)}
@@ -503,7 +509,7 @@ function GridCell({
         dir="auto"
         onClick={onSelect}
         onDoubleClick={() => onBeginEdit(undefined, box.current?.getBoundingClientRect() ?? null)}
-        onKeyDown={onKeyDown}
+        onKeyDown={(event) => onKeyDown(event, () => value)}
         // A snip can go straight onto the cell it belongs in without opening
         // anything first, which is rather the point of having snipped it.
         onPaste={
@@ -772,26 +778,14 @@ export function TableGrid({
     [beginEdit, move, table.id]
   );
 
+  /**
+   * The keys that end an edit rather than take part in one. The marks and the
+   * line break are the cell's own business — a date and a number have neither,
+   * and a text cell can only answer them against the surface it is written in —
+   * so both are dealt with there and never reach this.
+   */
   const keysWhileEditing = useCallback(
-    (event: React.KeyboardEvent, rowId: string, columnId: string, rowIndex: number) => {
-      const input = event.currentTarget as HTMLInputElement | HTMLTextAreaElement;
-
-      /* Ctrl+B and the rest, which only mean anything in a box that holds
-         lines: there is nothing in a date or a number to make bold, and
-         Ctrl+B over a number column should stay the browser's own. */
-      if (input instanceof HTMLTextAreaElement) {
-        const shortcut = shortcutEdit(event);
-
-        if (shortcut) {
-          event.preventDefault();
-          applyEdit(input, shortcut, CELL_MAX_LENGTH, (next) => {
-            grow(input);
-            setDraft(next);
-          });
-          return;
-        }
-      }
-
+    (event: React.KeyboardEvent, read: () => string, rowId: string, columnId: string, rowIndex: number) => {
       if (event.key === 'Escape') {
         event.preventDefault();
         // Straight back to what was stored: an Escape that kept the typing
@@ -801,32 +795,8 @@ export function TableGrid({
       }
 
       if (event.key === 'Enter') {
-        /**
-         * Enter on its own means "done, next row down" — that is what makes a
-         * column of a hundred rows quick to fill in, and it is what every grid
-         * does. A line break inside the cell is Enter with a modifier held:
-         * Alt+Enter as in Excel, Shift+Enter as in most chat boxes, Ctrl+Enter
-         * for the people who reach for that. All three are here rather than
-         * one, because which one a person tries first is a habit and none of
-         * them is wrong.
-         *
-         * The break is put in by hand for every one of them, Shift+Enter
-         * included. A textarea would insert that one itself, but only as the
-         * default action of the keystroke — and leaning on that would make the
-         * three behave differently for no reason a person could see.
-         */
-        const wantsBreak = event.altKey || event.shiftKey || event.ctrlKey || event.metaKey;
-
-        if (wantsBreak && input instanceof HTMLTextAreaElement) {
-          event.preventDefault();
-          input.setRangeText('\n', input.selectionStart ?? 0, input.selectionEnd ?? 0, 'end');
-          grow(input);
-          setDraft(input.value);
-          return;
-        }
-
         event.preventDefault();
-        commit(rowId, columnId, input.value);
+        commit(rowId, columnId, read());
         if (rowIndex === rows.length - 1) enterFromLastRow();
         else move(1, 0);
         return;
@@ -834,7 +804,7 @@ export function TableGrid({
 
       if (event.key === 'Tab') {
         event.preventDefault();
-        commit(rowId, columnId, input.value);
+        commit(rowId, columnId, read());
         move(0, event.shiftKey ? -1 : 1);
       }
     },
@@ -1025,9 +995,9 @@ export function TableGrid({
                       onBeginEdit={(initial, rect) => beginEdit(row.id, column.id, initial, rect)}
                       onDraft={setDraft}
                       onCommit={(next) => commit(row.id, column.id, next)}
-                      onKeyDown={(event) =>
+                      onKeyDown={(event, read) =>
                         active && draft !== null
-                          ? keysWhileEditing(event, row.id, column.id, rowIndex)
+                          ? keysWhileEditing(event, read, row.id, column.id, rowIndex)
                           : keysWhileSelected(event, row.id, column, active)
                       }
                     />
