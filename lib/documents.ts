@@ -25,6 +25,7 @@
  */
 
 import { isLocalImageName } from '@/lib/local-posts';
+import { plainRichText } from '@/lib/rich-text';
 
 export type ColumnType = 'text' | 'number' | 'date' | 'note' | 'check';
 
@@ -142,6 +143,9 @@ export const COLUMN_NAME_MAX_LENGTH = 40;
  * A cell holds a paragraph rather than a phrase — text cells take line breaks,
  * so what goes in one is often several lines. The same size a goal's notes are
  * given in `goals.ts`, which is the other free-writing field in this project.
+ *
+ * The formatting markers count towards it like every other character, because
+ * they *are* other characters: see `lib/rich-text.ts`.
  */
 export const CELL_MAX_LENGTH = 2_000;
 
@@ -798,6 +802,20 @@ export function defaultOperatorFor(type: ColumnType): FilterOperator {
   return type === 'text' || type === 'note' ? 'contains' : 'is';
 }
 
+/**
+ * A cell as it *reads*, which is not always as it is stored. A text cell can
+ * carry the markers `lib/rich-text.ts` draws as bold or as a title, and those
+ * are how the line looks rather than part of what it says — so a filter asks
+ * about the words on the screen, and a bolded "Apple" sorts with the apples
+ * instead of in front of the whole table under an asterisk.
+ *
+ * Nothing is rewritten in storage by this: it is the same rule the tick box
+ * follows, a type deciding how one string is read.
+ */
+function readable(value: string, type: ColumnType): string {
+  return type === 'text' || type === 'note' ? plainRichText(value) : value;
+}
+
 function toNumber(value: string): number | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -832,7 +850,7 @@ function compareValues(cell: string, against: string, type: ColumnType): number 
 
 /** Whether one row survives one filter. */
 export function matchesFilter(row: Row, column: Column, filter: Filter): boolean {
-  const cell = cellValue(row, column.id).trim();
+  const cell = readable(cellValue(row, column.id), column.type).trim();
 
   switch (filter.operator) {
     case 'ticked':
@@ -967,8 +985,8 @@ export function cycleSort(tableId: string, columnId: string): boolean {
  * nobody has filled in yet, and it belongs at the bottom either way.
  */
 function compareCells(a: string, b: string, type: ColumnType): number {
-  const left = a.trim();
-  const right = b.trim();
+  const left = readable(a, type).trim();
+  const right = readable(b, type).trim();
 
   // A tick box is answered either way round, so an empty one is not a blank to
   // be pushed to the bottom — it is the "no" half of the column, and sorting is

@@ -202,6 +202,27 @@ row, which points at the very same files, safe. `components/document/picture-fol
 holds the folder controls (its own copy: the blog's live inside the post
 editor's toolbar) and `keepPicture`, which is where every refusal is worded.
 
+A picture is **never stored at less than its full resolution** — `saveImage`
+writes the blob it was handed — so how readable one is is only ever a question
+of the room it is given. `Thumb` forces no height on it: it is drawn at its own
+measurements, shrunk only by the width of the cell or by `capFor` (280px for a
+picture on its own, 130px when a cell holds several and is a contact sheet). A
+snip small enough to fit therefore comes out at one image pixel per screen
+pixel, which is the only size small text in a screenshot is legible at; forcing
+a height, as this once did, made everything the other case and a 36-pixel strip
+of a screenshot says nothing. The rest is `components/document/picture-viewer.tsx`,
+opened by clicking a picture in a cell or in the panel: the whole window, the
+arrow keys between the pictures of that cell, and **two sizes that answer
+different questions** — fit, to find the part you want, and full size at 1:1 with
+the window scrolling, to read it. Its own measurements are on the bar so which
+one you are looking at is never a guess. It sits at `z-[70]`, above the page's
+own full screen at `z-[60]`, and takes Escape **in the capture phase** — the page
+leaves full screen from a listener on the same window, and only getting in front
+of it keeps Escape unwinding one layer at a time. The backdrop closes on a click,
+but ignores one with `detail > 1`, or the second half of a double-click on a
+thumbnail would shut the picture the first half just opened. The note panel
+stays open behind it by ignoring mousedowns inside `[VIEWER_MARK]`.
+
 `components/document/table-grid.tsx` is the surface, written to be used the way a
 spreadsheet is: click to put the cursor on a cell, type to replace it, Enter down
 (adding a row at the bottom), Tab across and round, arrows to move, Escape to put
@@ -244,6 +265,24 @@ the cell itself skips the panel entirely. The page's full screen is a
 `fixed inset-0` overlay rather than the browser's own Fullscreen API — the same
 workspace, given the whole window, without hiding the browser's chrome as well.
 Escape unwinds one layer at a time: the edit, then the cell, then full screen.
+
+Those lines can carry **formatting, written into the cell rather than beside it**
+(`lib/rich-text.ts`, drawn by `components/document/rich-text.tsx`): `**bold**`,
+`*italic*`, `~~struck~~`, `` `code` ``, and a line opening `# ` or `## ` as a
+title. It is markers rather than a second field for one reason — the rule that
+a cell stores the string that was typed and the type only says how it is *read*.
+A bold column retyped as a number keeps every asterisk and gives all of it back
+when it is retyped again. Marks are put on by Ctrl+B / Ctrl+I / Ctrl+E /
+Ctrl+Shift+X, titles by Ctrl+Alt+1 and Ctrl+Alt+2 (Ctrl+1 belongs to the browser
+and cannot be had), and by the `FormatToolbar` under the cell being written in —
+whose buttons hold the field's focus down through `mousedown`, since letting it
+go would commit and close the cell before the click ever landed. An opener has
+to hug the word it opens and a closer the word it closes, so `2 * 3 * 4` is
+arithmetic; an unclosed marker stays the character it is. Filtering and sorting a
+`text` or `note` column go through `plainRichText` (`readable` in `documents.ts`),
+so "is" asks about the words on the screen and a bolded *Zebra* sorts under Z
+rather than in front of the table under an asterisk. Nothing `RichText` draws
+sets a `dir` of its own, for the reason given above.
 
 Three of them carry dates, which is the other easy mix-up. A **dated milestone**
 (`milestones.ts`, `range`) runs *between* two days and shows the work done against

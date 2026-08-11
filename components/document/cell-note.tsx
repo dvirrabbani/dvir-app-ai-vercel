@@ -31,7 +31,10 @@ import {
   setCell,
 } from '@/lib/documents';
 import { discardTableImages } from '@/lib/image-folder';
+import { plainRichText, shortcutEdit } from '@/lib/rich-text';
 import { useFolderImage } from '@/lib/use-folder-image';
+import { VIEWER_MARK } from '@/components/document/picture-viewer';
+import { FormatToolbar, RichText, applyEdit } from '@/components/document/rich-text';
 import {
   PictureFolderButton,
   folderMessage,
@@ -50,12 +53,23 @@ const LINE = 'border-black/10 dark:border-white/10';
 /* -------------------------------------------------------------------------- */
 
 /**
- * A picture out of the folder. Three states, and all of them take up the same
- * room: reading it, showing it, and not finding it. A picture that has been
- * moved out of the folder from under the table leaves its frame behind, because
- * the cell still says a picture belongs there.
+ * A picture out of the folder, at the size it deserves.
+ *
+ * No height is forced on it: it is drawn at its own measurements, shrunk only
+ * by whichever cap it meets first — the width of the cell it is in, or the
+ * height a row can reasonably give it. A snip of a dialog box small enough to
+ * fit comes out at exactly one image pixel per screen pixel, which is the only
+ * way it is properly readable; a full-window screenshot comes down to fit and
+ * is opened in `PictureViewer` to be read. Forcing a height, as this used to,
+ * made the second case of everything — a 36-pixel strip of a screenshot tells
+ * you nothing except that a screenshot is there.
+ *
+ * Three states, and the two that are not a picture take a square of their own
+ * so the cell does not jump about: reading it, showing it, and not finding it.
+ * A picture moved out of the folder from under the table leaves its frame
+ * behind, because the cell still says a picture belongs there.
  */
-function Thumb({ name, size, alt }: { name: string; size: number; alt: string }) {
+function Thumb({ name, maxHeight, alt }: { name: string; maxHeight: number; alt: string }) {
   const { url, state } = useFolderImage(name);
 
   if (state === 'ready' && url) {
@@ -66,15 +80,17 @@ function Thumb({ name, size, alt }: { name: string; size: number; alt: string })
       <img
         src={url}
         alt={alt}
-        style={{ height: size }}
-        className={`max-w-full rounded border object-contain ${LINE}`}
+        style={{ maxHeight }}
+        className={`block max-w-full rounded border ${LINE}`}
       />
     );
   }
 
+  const side = Math.min(maxHeight, 56);
+
   return (
     <span
-      style={{ height: size, width: size }}
+      style={{ height: side, width: side }}
       title={state === 'missing' ? `${name} is not in the folder any more` : name}
       className={`inline-flex items-center justify-center rounded border bg-black/[0.03] dark:bg-white/[0.05] ${LINE} ${MUTED}`}
     >
@@ -87,12 +103,29 @@ function Thumb({ name, size, alt }: { name: string; size: number; alt: string })
   );
 }
 
+/**
+ * How much height a cell gives a picture. One on its own gets room to be read
+ * where it sits; several are a contact sheet, and the one you want is opened.
+ */
+function capFor(count: number): number {
+  return count === 1 ? 280 : 130;
+}
+
 /* -------------------------------------------------------------------------- */
 /*  What the grid shows                                                       */
 /* -------------------------------------------------------------------------- */
 
 /** The cell as it sits in the table: pictures along the top, writing beneath. */
-export function NoteCellBody({ row, column }: { row: Row; column: Column }) {
+export function NoteCellBody({
+  row,
+  column,
+  onView,
+}: {
+  row: Row;
+  column: Column;
+  /** Opens the cell's pictures over the page, starting at the one clicked. */
+  onView: (names: string[], at: number) => void;
+}) {
   const text = cellValue(row, column.id);
   const images = cellImages(row, column.id);
 
@@ -106,22 +139,46 @@ export function NoteCellBody({ row, column }: { row: Row; column: Column }) {
     // text, rather than stranded across the cell from it.
     <span dir="auto" className="flex flex-col items-start gap-1">
       {images.length > 0 && (
-        <span className="flex max-w-full flex-wrap items-center gap-1">
-          {images.map((name) => (
-            <Thumb key={name} name={name} size={36} alt={text || column.name} />
+        <span className="flex max-w-full flex-wrap items-start gap-1">
+          {images.map((name, index) => (
+            <button
+              key={name}
+              type="button"
+              // The grid moves by cell, so a picture is not its own stop on the
+              // way round with Tab — the cell it sits in is, and the panel
+              // behind Enter has the same pictures as proper buttons.
+              tabIndex={-1}
+              title="Open this picture over the page"
+              // The click is this picture's own: letting it through would put
+              // the cursor on the cell instead, and the double click behind it
+              // would open the writing panel over the picture just asked for.
+              onClick={(event) => {
+                event.stopPropagation();
+                onView(images, index);
+              }}
+              onDoubleClick={(event) => event.stopPropagation()}
+              className="block max-w-full cursor-zoom-in rounded transition-opacity hover:opacity-80"
+            >
+              {/* The markers are how the line looks rather than part of what it
+                  says, so the picture beside it is described by the words. */}
+              <Thumb name={name} maxHeight={capFor(images.length)} alt={plainRichText(text) || column.name} />
+            </button>
           ))}
         </span>
       )}
       {text && (
-        // Shown whole, line breaks and all, and the row grows to hold it — the
-        // same as a plain text cell, so which type a column is does not change
-        // how much of what you wrote you can see.
+        // Shown whole, line breaks and formatting and all, and the row grows to
+        // hold it — the same as a plain text cell, so which type a column is
+        // does not change how much of what you wrote you can see.
         //
         // No `dir` of its own, deliberately: a `dir="auto"` here would hide this
         // text from the one on the wrapper — the direction is read from the
         // first strong character *outside* any descendant that sets its own —
-        // and the pictures above would be left facing the other way.
-        <span className="whitespace-pre-wrap break-words leading-snug">{text}</span>
+        // and the pictures above would be left facing the other way. Nothing
+        // `RichText` draws sets one either, for the same reason.
+        <span className="whitespace-pre-wrap break-words leading-snug">
+          <RichText value={text} />
+        </span>
       )}
     </span>
   );
@@ -132,7 +189,8 @@ export function NoteCellBody({ row, column }: { row: Row; column: Column }) {
 /* -------------------------------------------------------------------------- */
 
 const PANEL_WIDTH = 340;
-const PANEL_HEIGHT = 400;
+/** Room for a picture worth looking at above the writing, and no more. */
+const PANEL_HEIGHT = 460;
 
 /** Under the cell if it fits, above it if it does not, and never off the edge. */
 function placePanel(anchor: DOMRect): { left: number; top: number } {
@@ -149,6 +207,7 @@ export function NoteEditor({
   row,
   column,
   anchor,
+  onView,
   onClose,
 }: {
   table: TableDoc;
@@ -156,6 +215,8 @@ export function NoteEditor({
   column: Column;
   /** Where the cell is on the screen, so the panel opens against it. */
   anchor: DOMRect;
+  /** Opens the cell's pictures over the page, starting at the one clicked. */
+  onView: (names: string[], at: number) => void;
   onClose: () => void;
 }) {
   const stored = cellValue(row, column.id);
@@ -168,6 +229,8 @@ export function NoteEditor({
 
   const box = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+  /** The writing box, so the formatting buttons have something to act on. */
+  const field = useRef<HTMLTextAreaElement>(null);
 
   /**
    * What the writing is committed from, and where to.
@@ -200,7 +263,14 @@ export function NoteEditor({
 
   useEffect(() => {
     const away = (event: MouseEvent) => {
-      if (!box.current?.contains(event.target as Node)) onClose();
+      const target = event.target as HTMLElement | null;
+
+      // A picture opened from in here is over the page rather than inside this
+      // panel, and closing the panel out from under it would commit and shut
+      // the very cell whose screenshot is being read.
+      if (target?.closest(`[${VIEWER_MARK}]`)) return;
+
+      if (!box.current?.contains(target)) onClose();
     };
 
     document.addEventListener('mousedown', away);
@@ -293,9 +363,18 @@ export function NoteEditor({
 
       {images.length > 0 && (
         <ul className="flex flex-wrap gap-1.5">
-          {images.map((name) => (
+          {images.map((name, index) => (
             <li key={name} className="relative">
-              <Thumb name={name} size={72} alt={draft || column.name} />
+              {/* A real stop on the way round with Tab, unlike the copy in the
+                  grid: in here there is no cell cursor to get in the way of. */}
+              <button
+                type="button"
+                onClick={() => onView(images, index)}
+                title="Open this picture over the page"
+                className="block max-w-full cursor-zoom-in rounded transition-opacity hover:opacity-80"
+              >
+                <Thumb name={name} maxHeight={150} alt={plainRichText(draft) || column.name} />
+              </button>
               <button
                 type="button"
                 onClick={() => drop(name)}
@@ -312,8 +391,19 @@ export function NoteEditor({
 
       <textarea
         autoFocus
+        ref={field}
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
+        // The same marks as a plain text cell, on the same keys. Handled here
+        // rather than on the panel, which is only listening for the two ways
+        // out of it.
+        onKeyDown={(event) => {
+          const shortcut = shortcutEdit(event);
+          if (!shortcut || !field.current) return;
+
+          event.preventDefault();
+          applyEdit(field.current, shortcut, CELL_MAX_LENGTH, setDraft);
+        }}
         maxLength={CELL_MAX_LENGTH}
         dir="auto"
         rows={4}
@@ -321,6 +411,8 @@ export function NoteEditor({
         aria-label={`${column.name} — what this cell says`}
         className={`w-full resize-y rounded-lg border bg-white/70 px-2 py-1.5 text-sm outline-none transition-colors placeholder:text-gray-500 focus:border-[#FF4D8E]/50 focus:ring-2 focus:ring-[#FF4D8E]/20 dark:bg-white/5 dark:placeholder:text-gray-400 ${LINE} ${SOLID}`}
       />
+
+      <FormatToolbar field={field} max={CELL_MAX_LENGTH} onChange={setDraft} />
 
       <div className="flex flex-wrap items-center gap-1.5">
         <button
@@ -355,7 +447,7 @@ export function NoteEditor({
       ) : (
         <p className={`text-[11px] ${MUTED}`}>
           {folder.status === 'ready'
-            ? `Ctrl+V drops a snip straight in. ${folderMessage(folder)}`
+            ? `Ctrl+B is bold and Ctrl+Alt+1 a title. Ctrl+V drops a snip straight in. ${folderMessage(folder)}`
             : folderMessage(folder)}
         </p>
       )}
