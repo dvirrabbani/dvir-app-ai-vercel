@@ -32,7 +32,8 @@ export default function SummaryPage() {
           <h1 className="mb-3 text-3xl font-bold text-foreground md:text-4xl lg:text-5xl">Your days</h1>
           <p className="max-w-2xl text-base text-muted-foreground md:text-lg">
             What a stretch of days adds up to. Pick two dates and see how the nights average out, how much was eaten
-            and when in the day it all fell — counted from what you wrote down on the routines page.
+            and when in the day it all fell — then open any day in the list to write it down or put it right, without
+            going back to the routines page for it.
           </p>
         </motion.header>
 
