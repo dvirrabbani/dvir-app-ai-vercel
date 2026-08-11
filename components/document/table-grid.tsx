@@ -22,6 +22,7 @@ import {
   ChevronRight,
   Copy,
   Filter as FilterIcon,
+  List,
   MoreVertical,
   Plus,
   Trash2,
@@ -62,6 +63,7 @@ import {
 import { discardTableImages } from '@/lib/image-folder';
 import { shortcutCommand } from '@/lib/rich-text';
 import { NoteCellBody, NoteEditor } from '@/components/document/cell-note';
+import { OptionListPanel, OptionPicker, SelectCellBody } from '@/components/document/cell-select';
 import { PictureViewer } from '@/components/document/picture-viewer';
 import {
   FormatToolbar,
@@ -85,6 +87,18 @@ interface Cursor {
 
 /** The cell whose panel is open, and where on the screen to open it against. */
 interface OpenNote extends Cursor {
+  anchor: DOMRect;
+}
+
+/** The same, for the menu a `select` cell opens — plus the character that
+ *  opened it, when it was opened by typing straight over the cell. */
+interface OpenPick extends OpenNote {
+  initial?: string;
+}
+
+/** The column whose list of choices is being edited, and where to open it. */
+interface OpenList {
+  columnId: string;
   anchor: DOMRect;
 }
 
@@ -113,11 +127,14 @@ function HeaderMenu({
   column,
   index,
   onFilter,
+  onEditList,
 }: {
   table: TableDoc;
   column: Column;
   index: number;
   onFilter: () => void;
+  /** Opens the column's list of choices, against the menu it was asked from. */
+  onEditList: (anchor: DOMRect) => void;
 }) {
   const [open, setOpen] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -163,6 +180,14 @@ function HeaderMenu({
               onClick={() => {
                 updateColumn(table.id, column.id, { type });
                 setOpen(false);
+
+                // A column that has just been told it holds one of a list, and
+                // has no list, is a column of nothing you can pick — so the
+                // list opens rather than leaving somebody to find it.
+                if (type === 'select' && column.options.length === 0) {
+                  const anchor = box.current?.getBoundingClientRect();
+                  if (anchor) onEditList(anchor);
+                }
               }}
               className={`${item} ${column.type === type ? 'font-semibold text-[#D81B60] dark:text-[#FF9EC1]' : SOLID}`}
             >
@@ -171,6 +196,21 @@ function HeaderMenu({
           ))}
 
           <div className={`my-1 border-t ${LINE}`} />
+
+          {column.type === 'select' && (
+            <button
+              type="button"
+              onClick={() => {
+                const anchor = box.current?.getBoundingClientRect();
+                setOpen(false);
+                if (anchor) onEditList(anchor);
+              }}
+              className={`${item} ${SOLID}`}
+            >
+              <List className="h-3.5 w-3.5 shrink-0" />
+              Edit the list
+            </button>
+          )}
 
           <button
             type="button"
@@ -248,6 +288,7 @@ function HeaderCell({
   width,
   onResize,
   onFilter,
+  onEditList,
 }: {
   table: TableDoc;
   column: Column;
@@ -257,6 +298,7 @@ function HeaderCell({
   /** A width to show and not yet store, or null when the pointer lifts. */
   onResize: (width: number | null) => void;
   onFilter: () => void;
+  onEditList: (anchor: DOMRect) => void;
 }) {
   const [draft, setDraft] = useState(column.name);
 
@@ -347,7 +389,13 @@ function HeaderCell({
           className={`min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-xs font-semibold outline-none transition-colors hover:border-black/10 focus:border-[#FF4D8E]/50 focus:bg-white/70 dark:hover:border-white/10 dark:focus:bg-white/10 ${SOLID}`}
         />
 
-        <HeaderMenu table={table} column={column} index={index} onFilter={onFilter} />
+        <HeaderMenu
+          table={table}
+          column={column}
+          index={index}
+          onFilter={onFilter}
+          onEditList={onEditList}
+        />
       </div>
 
       {/* Sat over the border itself, so the whole line between two columns is
@@ -374,6 +422,7 @@ function GridCell({
   column,
   active,
   draft,
+  panelOpen,
   onSelect,
   onBeginEdit,
   onDraft,
@@ -389,6 +438,9 @@ function GridCell({
   active: boolean;
   /** Non-null while this cell is the one being typed into. */
   draft: string | null;
+  /** Whether this cell's own panel — the note editor, the list of choices —
+   *  is open over the page, which is where the keyboard is while it is. */
+  panelOpen: boolean;
   onSelect: () => void;
   /** The rect goes with it: a picture cell opens a panel against itself. */
   onBeginEdit: (initial: string | undefined, rect: DOMRect | null) => void;
@@ -411,10 +463,13 @@ function GridCell({
   const editing = draft !== null;
 
   // The cursor is where the keyboard is, so the cell under it takes focus —
-  // that is what makes the arrow keys reach this handler at all.
+  // that is what makes the arrow keys reach this handler at all. Not while a
+  // panel of its own is open: the keyboard is in there. It comes back the
+  // moment the panel closes, which is what keeps a column of choices quick to
+  // fill in — pick one, then straight down to the next row with an arrow.
   useEffect(() => {
-    if (active && !editing) box.current?.focus({ preventScroll: false });
-  }, [active, editing]);
+    if (active && !editing && !panelOpen) box.current?.focus({ preventScroll: false });
+  }, [active, editing, panelOpen]);
 
   if (editing) {
     return (
@@ -526,7 +581,11 @@ function GridCell({
         // grows to hold it — the same way a cell in a post's table does. A
         // number or a date is one line by nature and keeps its ellipsis.
         className={`cursor-cell px-2 py-1.5 text-sm outline-none ${SOLID} ${
-          type === 'text' || type === 'note' ? 'whitespace-pre-wrap break-words leading-snug' : 'truncate'
+          type === 'text' || type === 'note'
+            ? 'whitespace-pre-wrap break-words leading-snug'
+            : type === 'select'
+              ? 'leading-snug'
+              : 'truncate'
         } ${type === 'number' ? 'text-right tabular-nums' : ''} ${type === 'check' ? 'text-center' : ''} ${
           active
             ? 'bg-[#FF4D8E]/[0.06] ring-2 ring-inset ring-[#FF4D8E]'
@@ -549,6 +608,10 @@ function GridCell({
           />
         ) : type === 'note' ? (
           <NoteCellBody row={row} column={column} onView={onViewImage} />
+        ) : type === 'select' ? (
+          // The choice as a chip, and anything the list does not offer still
+          // shown as what somebody wrote — a type says how a string is read.
+          <SelectCellBody row={row} column={column} />
         ) : type === 'text' ? (
           // Drawn rather than printed out: `**a**` is a bold a and a line
           // opening with `# ` is a title. Every marker is still a character
@@ -585,6 +648,9 @@ export function TableGrid({
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
   const [note, setNote] = useState<OpenNote | null>(null);
+  /** The cell whose choices are open, and the column whose list is. */
+  const [pick, setPick] = useState<OpenPick | null>(null);
+  const [list, setList] = useState<OpenList | null>(null);
   /** The cell's pictures being read over the page, and which of them is up. */
   const [viewing, setViewing] = useState<{ names: string[]; at: number } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -647,6 +713,23 @@ export function TableGrid({
     return row && column ? { row, column, anchor: note.anchor } : null;
   }, [columns, note, table.rows]);
 
+  /** The same, for the choices a cell is being picked from: looked up afresh
+   *  so a choice added from inside the menu appears in it straight away. */
+  const openPick = useMemo(() => {
+    if (!pick) return null;
+
+    const row = table.rows.find((each) => each.id === pick.rowId);
+    const column = columns.find((each) => each.id === pick.columnId);
+    return row && column ? { row, column, anchor: pick.anchor, initial: pick.initial } : null;
+  }, [columns, pick, table.rows]);
+
+  const openList = useMemo(() => {
+    if (!list) return null;
+
+    const column = columns.find((each) => each.id === list.columnId);
+    return column ? { column, anchor: list.anchor } : null;
+  }, [columns, list]);
+
   const move = useCallback(
     (downBy: number, acrossBy: number) => {
       if (!position) return;
@@ -695,6 +778,15 @@ export function TableGrid({
       if (column?.type === 'note') {
         if (initial !== undefined) setCell(table.id, rowId, columnId, `${stored}${initial}`);
         if (rect) setNote({ rowId, columnId, anchor: rect });
+        return;
+      }
+
+      // A cell holding one of a list is not typed into either: it opens the
+      // list. A character that opened it goes into the box at the top, which
+      // finds the choice it begins — so typing "d" and Enter is how "Done"
+      // gets picked without the mouse.
+      if (column?.type === 'select') {
+        if (rect) setPick({ rowId, columnId, anchor: rect, initial });
         return;
       }
 
@@ -765,6 +857,15 @@ export function TableGrid({
           event.preventDefault();
           toggleTick(table.id, rowId, column.id);
         }
+        return;
+      }
+
+      // And Space opens a list, as it does on any other menu — a space typed
+      // over the cell would otherwise open it looking for a choice beginning
+      // with one, which is nothing.
+      if (column.type === 'select' && key === ' ') {
+        event.preventDefault();
+        beginEdit(rowId, column.id, undefined, event.currentTarget.getBoundingClientRect());
         return;
       }
 
@@ -903,6 +1004,7 @@ export function TableGrid({
                     addFilter(table.id, column.id);
                     onFilterColumn();
                   }}
+                  onEditList={(anchor) => setList({ columnId: column.id, anchor })}
                 />
               ))}
 
@@ -984,6 +1086,10 @@ export function TableGrid({
                       column={column}
                       active={active}
                       draft={active ? draft : null}
+                      panelOpen={
+                        (note?.rowId === row.id && note.columnId === column.id) ||
+                        (pick?.rowId === row.id && pick.columnId === column.id)
+                      }
                       label={`${column.name}, row ${rowIndex + 1}`}
                       onSelect={() => {
                         setDraft(null);
@@ -1047,6 +1153,29 @@ export function TableGrid({
         />
       )}
 
+      {/* The choices a cell is picked from, and the list they come off — both
+          out here for the same reason the note panel is: inside the scrolling
+          box they would be cut off by its edge on every cell near the bottom. */}
+      {openPick && (
+        <OptionPicker
+          table={table}
+          row={openPick.row}
+          column={openPick.column}
+          anchor={openPick.anchor}
+          initial={openPick.initial}
+          onClose={() => setPick(null)}
+        />
+      )}
+
+      {openList && (
+        <OptionListPanel
+          table={table}
+          column={openList.column}
+          anchor={openList.anchor}
+          onClose={() => setList(null)}
+        />
+      )}
+
       {/* Over everything, including the page's own full screen. Keyed by the
           picture it was opened on, so opening a second one starts it afresh
           rather than leaving it where the last one was left. */}
@@ -1073,8 +1202,11 @@ export function TableGrid({
         bottom, <strong className="font-medium">Alt+Enter</strong> (or Shift+Enter) breaks the line inside the
         cell, <strong className="font-medium">Tab</strong> goes across, arrows move,{' '}
         <strong className="font-medium">Esc</strong> puts back what was there. Drag the line between two
-        headings to resize a column. A <strong className="font-medium">Text &amp; pictures</strong> column
-        opens a panel instead, and takes a snip pasted straight onto the cell; click a picture in one to read
+        headings to resize a column. A <strong className="font-medium">Pick from a list</strong> column opens
+        its choices instead — type to find one, or type a new one and press Enter to add it to the list, and
+        the column sorts in the order the list is in. A{' '}
+        <strong className="font-medium">Text &amp; pictures</strong> column opens a panel instead, and takes a
+        snip pasted straight onto the cell; click a picture in one to read
         it over the whole page, where it can be shown at full size. Text cells take formatting:{' '}
         <strong className="font-medium">Ctrl+B</strong> for bold, <strong className="font-medium">Ctrl+I</strong>{' '}
         for italic, <strong className="font-medium">Ctrl+Alt+1</strong> for a title, or the buttons under the

@@ -1,0 +1,604 @@
+'use client';
+
+/**
+ * A cell that holds one of a list of choices.
+ *
+ * The column keeps the list — "To do, Doing, Done" — and the cell keeps the
+ * name of the one that was picked, as the plain string it always keeps, so a
+ * column of choices retyped as text is still every word somebody chose. What
+ * the type adds is that the words come off a menu instead of being typed out
+ * forty times, and that they come out in the order the list is in rather than
+ * alphabetically.
+ *
+ * Both halves live here, the way the diet menu keeps its chips and its editor
+ * together: `OptionPicker` is what a cell opens, and `OptionListPanel` is the
+ * list itself, opened from the column's own menu. A choice is added from
+ * either, because the moment you want one is usually the moment you are
+ * filling a cell in.
+ */
+
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Check, ChevronDown, ChevronUp, Plus, Trash2, X } from 'lucide-react';
+import {
+  Column,
+  MAX_COLUMN_OPTIONS,
+  OPTION_MAX_LENGTH,
+  Row,
+  TableDoc,
+  addOption,
+  cellValue,
+  moveOption,
+  optionIndex,
+  removeOption,
+  renameOption,
+  sameOption,
+  setCell,
+  unlistedValues,
+} from '@/lib/documents';
+
+/** Literal greys: `text-muted-foreground` resolves to nothing in this project. */
+const MUTED = 'text-[#4B5563] dark:text-[#9CA3AF]';
+const SOLID = 'text-[#171717] dark:text-[#FAFAFA]';
+const LINE = 'border-black/10 dark:border-white/10';
+
+/* -------------------------------------------------------------------------- */
+/*  What a choice looks like                                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The colours a chip can come in. Each is a pale tint with its own dark ink in
+ * the light theme and the same hue the other way round in the dark one, so a
+ * chip is legible in both — a brand pink chip with pink writing on it measures
+ * 2.3:1 and is exactly the trap this project has been caught by before.
+ *
+ * Which colour a choice gets is its **place on the list** rather than anything
+ * stored or anything hashed out of its name. Nothing to pick when adding a
+ * choice and nothing to carry through a backup either way, but a place is the
+ * one that guarantees the first eight choices are eight different colours: a
+ * hash of the name puts "To do" and "In progress" on the same tint about as
+ * often as not, and a status column where every chip is the same colour is a
+ * column you have to read rather than glance at.
+ */
+const TONES = [
+  'bg-[#E0E7FF] text-[#312E81] dark:bg-[#312E81] dark:text-[#C7D2FE]',
+  'bg-[#DCFCE7] text-[#14532D] dark:bg-[#14532D] dark:text-[#BBF7D0]',
+  'bg-[#FEF3C7] text-[#78350F] dark:bg-[#78350F] dark:text-[#FDE68A]',
+  'bg-[#FCE7F3] text-[#831843] dark:bg-[#831843] dark:text-[#FBCFE8]',
+  'bg-[#CFFAFE] text-[#164E63] dark:bg-[#164E63] dark:text-[#A5F3FC]',
+  'bg-[#F3E8FF] text-[#581C87] dark:bg-[#581C87] dark:text-[#E9D5FF]',
+  'bg-[#FFE4E6] text-[#881337] dark:bg-[#881337] dark:text-[#FECDD3]',
+  'bg-[#E2E8F0] text-[#1E293B] dark:bg-[#334155] dark:text-[#E2E8F0]',
+];
+
+/** A list longer than the palette starts it again, which only puts two of a
+ *  colour on a list of nine — and they are eight apart. */
+function toneFor(place: number): string {
+  return TONES[place % TONES.length];
+}
+
+/**
+ * One choice, drawn. A value the list does not offer — `place` of -1 — is
+ * still shown, because it is what somebody wrote, but dressed as what it is
+ * rather than given a colour of its own: a column half filled in before the
+ * list existed reads at a glance as a column half filled in.
+ */
+export function OptionChip({
+  name,
+  place,
+  className = '',
+}: {
+  name: string;
+  /** Where it sits on the column's list, or -1 for something not on it. */
+  place: number;
+  className?: string;
+}) {
+  return (
+    <span
+      dir="auto"
+      title={place === -1 ? `${name} — not on this column's list` : name}
+      className={`inline-block max-w-full truncate rounded-full px-2 py-0.5 text-xs font-medium ${
+        place === -1 ? `border border-dashed ${LINE} ${MUTED}` : toneFor(place)
+      } ${className}`}
+    >
+      {name}
+    </span>
+  );
+}
+
+/** The cell as it sits in the table: the chip, or a line kept clickable. */
+export function SelectCellBody({ row, column }: { row: Row; column: Column }) {
+  const value = cellValue(row, column.id).trim();
+
+  // A non-breaking space so an empty cell is still a full line tall and can be
+  // clicked on at all.
+  if (!value) return <>{' '}</>;
+
+  // Shown in the list's own spelling once it is on the list, so a column
+  // filled in by hand stops looking like three different answers.
+  const place = optionIndex(column, value);
+  return <OptionChip name={place === -1 ? value : column.options[place]} place={place} />;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Where a panel opens                                                       */
+/* -------------------------------------------------------------------------- */
+
+const PANEL_WIDTH = 260;
+const PANEL_HEIGHT = 320;
+
+/** Under whatever opened it if it fits, above it if it does not, never off the
+ *  edge. The same rule the note panel follows, and for the same reason: these
+ *  are `position: fixed` so the scroll box they belong to cannot clip them. */
+function placePanel(anchor: DOMRect): { left: number; top: number } {
+  const left = Math.max(8, Math.min(anchor.left, window.innerWidth - PANEL_WIDTH - 8));
+
+  const below = anchor.bottom + 4;
+  const top = below + PANEL_HEIGHT > window.innerHeight ? Math.max(8, anchor.top - PANEL_HEIGHT - 4) : below;
+
+  return { left, top };
+}
+
+/** Closing on a click anywhere else, which is how both of these panels end. */
+function useCloseOnClickAway(box: React.RefObject<HTMLDivElement | null>, onClose: () => void) {
+  useEffect(() => {
+    const away = (event: MouseEvent) => {
+      if (!box.current?.contains(event.target as Node)) onClose();
+    };
+
+    document.addEventListener('mousedown', away);
+    return () => document.removeEventListener('mousedown', away);
+  }, [box, onClose]);
+}
+
+const PANEL =
+  'fixed z-50 flex flex-col gap-1.5 rounded-xl border bg-white p-2 shadow-xl dark:bg-[#26262A]';
+
+const FIELD =
+  'w-full min-w-0 rounded-lg border bg-white/70 px-2 py-1.5 text-xs outline-none transition-colors focus:border-[#FF4D8E]/50 focus:ring-2 focus:ring-[#FF4D8E]/20 dark:bg-white/5';
+
+/* -------------------------------------------------------------------------- */
+/*  Picking one                                                               */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The menu a cell opens: the choices, and a box that finds one by typing and
+ * makes one when there is nothing to find.
+ *
+ * Adding from in here is the whole reason a column can be turned into a list
+ * and filled in straight away — the moment you want a choice that is not on
+ * the list is almost always the moment you are looking at the cell that wants
+ * it, and sending somebody to the column's menu and back to add "Blocked" is
+ * how a list ends up with three spellings of it typed into cells instead.
+ */
+export function OptionPicker({
+  table,
+  row,
+  column,
+  anchor,
+  initial,
+  onClose,
+}: {
+  table: TableDoc;
+  row: Row;
+  column: Column;
+  /** Where the cell is on the screen, so the menu opens against it. */
+  anchor: DOMRect;
+  /** The character that opened it, when it was opened by typing over the cell. */
+  initial?: string;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState(initial ?? '');
+  const [at, setAt] = useState(0);
+
+  const box = useRef<HTMLDivElement>(null);
+  useCloseOnClickAway(box, onClose);
+
+  const value = cellValue(row, column.id);
+  const current = optionIndex(column, value);
+
+  const matches = useMemo(() => {
+    const wanted = query.trim().toLowerCase();
+    if (!wanted) return column.options;
+    return column.options.filter((option) => option.toLowerCase().includes(wanted));
+  }, [column.options, query]);
+
+  // The highlight follows the list rather than sitting past the end of it: a
+  // query narrowing to two choices must not leave Enter pointing at nothing.
+  const highlighted = matches.length === 0 ? -1 : Math.min(at, matches.length - 1);
+
+  const typed = query.trim().slice(0, OPTION_MAX_LENGTH);
+  const canAdd =
+    typed !== '' &&
+    column.options.length < MAX_COLUMN_OPTIONS &&
+    !column.options.some((option) => sameOption(option, typed));
+
+  const pick = useCallback(
+    (choice: string) => {
+      setCell(table.id, row.id, column.id, choice);
+      onClose();
+    },
+    [column.id, onClose, row.id, table.id]
+  );
+
+  const add = useCallback(() => {
+    if (!canAdd) return;
+    // Onto the list and into the cell in one go: a choice made up on the spot
+    // is being made because this row needs it.
+    if (addOption(table.id, column.id, typed)) pick(typed);
+  }, [canAdd, column.id, pick, table.id, typed]);
+
+  return (
+    <div
+      ref={box}
+      style={{ ...placePanel(anchor), width: Math.max(PANEL_WIDTH, Math.min(anchor.width, 360)) }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          // Held here: this Escape closes the menu and nothing else. It must
+          // not also let go of the cell behind it or leave full screen.
+          event.stopPropagation();
+          onClose();
+          return;
+        }
+
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+          event.preventDefault();
+          if (matches.length === 0) return;
+          const next = highlighted + (event.key === 'ArrowDown' ? 1 : -1);
+          setAt((next + matches.length) % matches.length);
+          return;
+        }
+
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          // What is under the highlight, or what has just been typed when the
+          // list has nothing like it — which is how a list is written in the
+          // first place, one choice at a time as the rows need them.
+          if (highlighted !== -1) pick(matches[highlighted]);
+          else add();
+        }
+      }}
+      className={`${PANEL} ${LINE}`}
+    >
+      <div className="flex items-center gap-1.5">
+        <span className={`min-w-0 flex-1 truncate text-xs font-semibold ${SOLID}`} dir="auto">
+          {column.name}
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          title="Close (Esc)"
+          aria-label="Close"
+          className={`shrink-0 rounded p-1 transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${MUTED}`}
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      <input
+        autoFocus
+        value={query}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          setAt(0);
+        }}
+        dir="auto"
+        maxLength={OPTION_MAX_LENGTH}
+        placeholder={column.options.length === 0 ? 'Type the first choice' : 'Find or add a choice'}
+        aria-label={`Find or add a choice for ${column.name}`}
+        className={`${FIELD} ${LINE} ${SOLID} placeholder:text-gray-500 dark:placeholder:text-gray-400`}
+      />
+
+      <ul className="max-h-52 overflow-auto">
+        {matches.map((option, index) => {
+          // Its place on the *column's* list, not in what the box has narrowed
+          // it to: a choice must not change colour while you type its name.
+          const place = column.options.indexOf(option);
+
+          return (
+            <li key={option}>
+              <button
+                type="button"
+                onMouseEnter={() => setAt(index)}
+                onClick={() => pick(option)}
+                className={`flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1 text-left transition-colors ${
+                  index === highlighted ? 'bg-black/[0.06] dark:bg-white/10' : ''
+                }`}
+              >
+                <OptionChip name={option} place={place} className="min-w-0" />
+                {current === place && (
+                  <Check className="ml-auto h-3.5 w-3.5 shrink-0 text-[#D81B60] dark:text-[#FF9EC1]" />
+                )}
+              </button>
+            </li>
+          );
+        })}
+
+        {matches.length === 0 && (
+          <li className={`px-1.5 py-1 text-[11px] ${MUTED}`}>
+            {column.options.length === 0
+              ? 'No choices yet.'
+              : `Nothing on the list matches “${query.trim()}”.`}
+          </li>
+        )}
+      </ul>
+
+      {canAdd && (
+        <button
+          type="button"
+          onClick={add}
+          className={`flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-left text-xs transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${SOLID}`}
+        >
+          <Plus className="h-3.5 w-3.5 shrink-0 text-[#D81B60] dark:text-[#FF9EC1]" />
+          <span className="min-w-0 truncate">
+            Add <span className="font-semibold">{typed}</span> to the list
+          </span>
+        </button>
+      )}
+
+      {/* Only what this cell is holding that the list is not offering: the
+          value stays where it is either way, and the button is the one thing
+          that would otherwise mean retyping it into the column's own menu. */}
+      {value.trim() !== '' && current === -1 && (
+        <div className={`flex items-center gap-1.5 border-t pt-1.5 ${LINE}`}>
+          <OptionChip name={value.trim()} place={-1} className="min-w-0" />
+          <button
+            type="button"
+            disabled={column.options.length >= MAX_COLUMN_OPTIONS}
+            onClick={() => {
+              addOption(table.id, column.id, value);
+              onClose();
+            }}
+            className={`ml-auto shrink-0 rounded-lg px-1.5 py-1 text-[11px] underline transition-colors hover:bg-black/5 disabled:no-underline disabled:opacity-40 dark:hover:bg-white/10 ${MUTED}`}
+          >
+            Add to the list
+          </button>
+        </div>
+      )}
+
+      {value.trim() !== '' && (
+        <button
+          type="button"
+          onClick={() => pick('')}
+          className={`rounded-lg px-1.5 py-1 text-left text-xs transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${MUTED}`}
+        >
+          Empty this cell
+        </button>
+      )}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  The list itself                                                           */
+/* -------------------------------------------------------------------------- */
+
+/** One row of the list: its name, editable where it is written, and its place. */
+function OptionRow({
+  table,
+  column,
+  option,
+  index,
+  count,
+}: {
+  table: TableDoc;
+  column: Column;
+  option: string;
+  index: number;
+  count: number;
+}) {
+  const [draft, setDraft] = useState(option);
+
+  // The stored name can move without this row touching it — another tab, or a
+  // rename being refused for a name already on the list — so it follows.
+  const [known, setKnown] = useState(option);
+  if (known !== option) {
+    setKnown(option);
+    setDraft(option);
+  }
+
+  const move = 'rounded p-0.5 transition-colors hover:bg-black/10 disabled:opacity-30 dark:hover:bg-white/10';
+
+  return (
+    <li className="flex items-center gap-1">
+      {/* The colour this choice comes out in, which is its place on the list —
+          so dragging one up the order is visibly a change of colour too. */}
+      <span className={`h-4 w-4 shrink-0 rounded-full ${toneFor(index)}`} aria-hidden />
+
+      <input
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={() => {
+          if (!draft.trim() || !renameOption(table.id, column.id, option, draft)) setDraft(option);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') event.currentTarget.blur();
+          if (event.key === 'Escape') {
+            setDraft(option);
+            event.currentTarget.blur();
+          }
+        }}
+        dir="auto"
+        maxLength={OPTION_MAX_LENGTH}
+        aria-label={`Rename ${option}`}
+        className={`${FIELD} ${LINE} ${SOLID} flex-1`}
+      />
+
+      <button
+        type="button"
+        disabled={index === 0}
+        onClick={() => moveOption(table.id, column.id, option, -1)}
+        title="Move up"
+        aria-label={`Move ${option} up`}
+        className={`${move} ${MUTED}`}
+      >
+        <ChevronUp className="h-3.5 w-3.5" />
+      </button>
+      <button
+        type="button"
+        disabled={index === count - 1}
+        onClick={() => moveOption(table.id, column.id, option, 1)}
+        title="Move down"
+        aria-label={`Move ${option} down`}
+        className={`${move} ${MUTED}`}
+      >
+        <ChevronDown className="h-3.5 w-3.5" />
+      </button>
+      <button
+        type="button"
+        onClick={() => removeOption(table.id, column.id, option)}
+        title={`Take ${option} off the list — cells already holding it keep it`}
+        aria-label={`Take ${option} off the list`}
+        className={`${move} ${MUTED} hover:text-[#B3261E] dark:hover:text-[#FFB4AB]`}
+      >
+        <Trash2 className="h-3.5 w-3.5" />
+      </button>
+    </li>
+  );
+}
+
+/**
+ * The column's list, opened from its menu: what it offers, in the order it
+ * offers it — which is the order the column sorts in, so moving "Blocked"
+ * above "Done" is a real edit and not a tidy-up.
+ *
+ * Anything already written down the column that the list does not offer is
+ * gathered at the bottom, because a column somebody has been filling in by
+ * hand for a month is the most likely thing to be retyped into a list, and
+ * typing the same twelve words out again is the reason they would not bother.
+ */
+export function OptionListPanel({
+  table,
+  column,
+  anchor,
+  onClose,
+}: {
+  table: TableDoc;
+  column: Column;
+  /** Where the heading is on the screen, so the panel opens under it. */
+  anchor: DOMRect;
+  onClose: () => void;
+}) {
+  const [draft, setDraft] = useState('');
+
+  const box = useRef<HTMLDivElement>(null);
+  useCloseOnClickAway(box, onClose);
+
+  const options = column.options;
+  const full = options.length >= MAX_COLUMN_OPTIONS;
+  const unlisted = useMemo(() => unlistedValues(table, column), [column, table]);
+  const room = MAX_COLUMN_OPTIONS - options.length;
+
+  const add = useCallback(() => {
+    if (addOption(table.id, column.id, draft)) setDraft('');
+  }, [column.id, draft, table.id]);
+
+  return (
+    <div
+      ref={box}
+      style={{ ...placePanel(anchor), width: PANEL_WIDTH, maxHeight: PANEL_HEIGHT }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          event.stopPropagation();
+          onClose();
+        }
+      }}
+      className={`${PANEL} ${LINE} overflow-auto`}
+    >
+      <div className="flex items-center gap-1.5">
+        <span className={`min-w-0 flex-1 truncate text-xs font-semibold ${SOLID}`} dir="auto">
+          {column.name} — the list
+        </span>
+        <button
+          type="button"
+          onClick={onClose}
+          title="Close (Esc)"
+          aria-label="Close"
+          className={`shrink-0 rounded p-1 transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${MUTED}`}
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {options.length === 0 ? (
+        <p className={`text-[11px] ${MUTED}`}>
+          Nothing on the list yet. Add the choices here, or type one straight into any cell in this column.
+        </p>
+      ) : (
+        <ul className="flex flex-col gap-1">
+          {options.map((option, index) => (
+            <OptionRow
+              key={option}
+              table={table}
+              column={column}
+              option={option}
+              index={index}
+              count={options.length}
+            />
+          ))}
+        </ul>
+      )}
+
+      <div className="flex items-center gap-1">
+        <input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key !== 'Enter') return;
+            event.preventDefault();
+            add();
+          }}
+          dir="auto"
+          disabled={full}
+          maxLength={OPTION_MAX_LENGTH}
+          placeholder={full ? `${MAX_COLUMN_OPTIONS} choices is the lot` : 'Another choice'}
+          aria-label={`Add a choice to ${column.name}`}
+          className={`${FIELD} ${LINE} ${SOLID} flex-1 placeholder:text-gray-500 disabled:opacity-60 dark:placeholder:text-gray-400`}
+        />
+        <button
+          type="button"
+          onClick={add}
+          disabled={full || !draft.trim()}
+          title="Add this choice"
+          aria-label="Add this choice"
+          className="shrink-0 rounded-lg bg-[#D81B60] p-1.5 text-white transition-colors hover:bg-[#B0154E] disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <Plus className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {unlisted.length > 0 && (
+        <div className={`flex flex-col gap-1.5 border-t pt-1.5 ${LINE}`}>
+          <p className={`text-[11px] ${MUTED}`}>
+            {unlisted.length === 1
+              ? 'One value down this column is not on the list:'
+              : `${unlisted.length} values down this column are not on the list:`}
+          </p>
+          <div className="flex flex-wrap gap-1">
+            {unlisted.map((value) => (
+              <OptionChip key={value} name={value} place={-1} />
+            ))}
+          </div>
+          <button
+            type="button"
+            disabled={full}
+            onClick={() => {
+              // As many as there is room for, in the order they appear down the
+              // column — which is nearer to the order they were thought of than
+              // anything alphabetical would be.
+              for (const value of unlisted.slice(0, room)) addOption(table.id, column.id, value);
+            }}
+            className={`self-start rounded-lg border px-2 py-1 text-[11px] font-medium transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-white/10 ${LINE} ${SOLID}`}
+          >
+            {full
+              ? `${MAX_COLUMN_OPTIONS} choices is the lot`
+              : unlisted.length > room
+                ? `Add the first ${room} to the list`
+                : unlisted.length === 1
+                  ? 'Add it to the list'
+                  : 'Add them all to the list'}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}

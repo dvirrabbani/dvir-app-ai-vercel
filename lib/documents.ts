@@ -27,9 +27,16 @@
 import { isLocalImageName } from '@/lib/local-posts';
 import { plainRichText } from '@/lib/rich-text';
 
-export type ColumnType = 'text' | 'number' | 'date' | 'note' | 'check';
+export type ColumnType = 'text' | 'number' | 'date' | 'note' | 'check' | 'select';
 
-export const COLUMN_TYPES: readonly ColumnType[] = ['text', 'number', 'date', 'note', 'check'];
+export const COLUMN_TYPES: readonly ColumnType[] = [
+  'text',
+  'number',
+  'date',
+  'note',
+  'check',
+  'select',
+];
 
 export const COLUMN_TYPE_LABELS: Record<ColumnType, string> = {
   text: 'Text',
@@ -37,6 +44,7 @@ export const COLUMN_TYPE_LABELS: Record<ColumnType, string> = {
   date: 'Date',
   note: 'Text & pictures',
   check: 'Tick box',
+  select: 'Pick from a list',
 };
 
 /** What a tick is written into the cell as. */
@@ -56,12 +64,33 @@ export function isTicked(value: string): boolean {
   return TICKS.has(value.trim().toLowerCase());
 }
 
+/**
+ * Whether two choices are the same choice. Spelled the way a tick is read:
+ * the case and the spaces round it are how it was typed rather than what it
+ * says, so "Done" picked off the list and "done" typed by hand are one answer.
+ */
+export function sameOption(a: string, b: string): boolean {
+  return a.trim().toLowerCase() === b.trim().toLowerCase();
+}
+
 export interface Column {
   id: string;
   name: string;
   type: ColumnType;
   /** How wide it has been dragged, in pixels. */
   width: number;
+  /**
+   * The choices a `select` column offers, in the order they are meant to be
+   * read — "To do, Doing, Done" rather than alphabetically, which is what
+   * sorting the column follows.
+   *
+   * Kept on the column whatever its type is, so retyping a list of choices as
+   * text and back gives the list return along with every cell — the same
+   * promise the cells themselves are under. A cell holds the *name* of the
+   * choice and not a reference to it, so a column filled in by hand becomes a
+   * column of choices the moment the list catches up with it.
+   */
+  options: string[];
 }
 
 export interface Row {
@@ -139,6 +168,8 @@ export const DOCUMENTS_EVENT = 'documents-changed';
 
 export const TABLE_NAME_MAX_LENGTH = 60;
 export const COLUMN_NAME_MAX_LENGTH = 40;
+/** A choice is a label on a chip, not a sentence — it has to fit in a cell. */
+export const OPTION_MAX_LENGTH = 40;
 /**
  * A cell holds a paragraph rather than a phrase — text cells take line breaks,
  * so what goes in one is often several lines. The same size a goal's notes are
@@ -151,6 +182,12 @@ export const CELL_MAX_LENGTH = 2_000;
 
 export const MAX_TABLES = 20;
 export const MAX_COLUMNS = 24;
+/**
+ * How many choices one column offers. A list longer than this has stopped
+ * being a list of choices and become writing, which is what a text column is
+ * for — and a menu you have to scroll to read is slower than typing the word.
+ */
+export const MAX_COLUMN_OPTIONS = 24;
 export const MAX_ROWS = 500;
 export const MAX_FILTERS = 8;
 
@@ -174,6 +211,28 @@ function clampWidth(value: unknown): number {
   return Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, Math.round(value)));
 }
 
+/**
+ * A column's list of choices, read back. Blanks are dropped and a choice
+ * already on the list is not added twice — two chips reading "Done" would be
+ * one thing you could pick two ways and filter for only half of.
+ */
+function toOptions(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+
+  const options: string[] = [];
+  for (const raw of value) {
+    if (typeof raw !== 'string') continue;
+
+    const name = raw.trim().slice(0, OPTION_MAX_LENGTH);
+    if (!name || options.some((each) => sameOption(each, name))) continue;
+
+    options.push(name);
+    if (options.length >= MAX_COLUMN_OPTIONS) break;
+  }
+
+  return options;
+}
+
 function toColumn(value: unknown): Column | null {
   if (typeof value !== 'object' || value === null) return null;
   const raw = value as Partial<Column>;
@@ -184,6 +243,9 @@ function toColumn(value: unknown): Column | null {
     name: raw.name.slice(0, COLUMN_NAME_MAX_LENGTH),
     type: COLUMN_TYPES.includes(raw.type as ColumnType) ? (raw.type as ColumnType) : 'text',
     width: clampWidth(raw.width),
+    // Absent on every column written before one could hold a list, which reads
+    // as a column offering no choices — which is what those were.
+    options: toOptions(raw.options),
   };
 }
 
@@ -373,9 +435,9 @@ export function addTable(name = 'Untitled table'): TableDoc | null {
 
   const now = new Date().toISOString();
   const columns: Column[] = [
-    { id: makeId('col'), name: 'Name', type: 'text', width: DEFAULT_COLUMN_WIDTH },
-    { id: makeId('col'), name: 'Amount', type: 'number', width: 130 },
-    { id: makeId('col'), name: 'Date', type: 'date', width: 150 },
+    { id: makeId('col'), name: 'Name', type: 'text', width: DEFAULT_COLUMN_WIDTH, options: [] },
+    { id: makeId('col'), name: 'Amount', type: 'number', width: 130, options: [] },
+    { id: makeId('col'), name: 'Date', type: 'date', width: 150, options: [] },
   ];
 
   const table: TableDoc = {
@@ -414,7 +476,10 @@ export function deleteTable(id: string) {
 /*  Columns                                                                   */
 /* -------------------------------------------------------------------------- */
 
-export function addColumn(tableId: string, input: { name?: string; type?: ColumnType } = {}): boolean {
+export function addColumn(
+  tableId: string,
+  input: { name?: string; type?: ColumnType; options?: string[] } = {}
+): boolean {
   return editTable(tableId, (table) => {
     if (table.columns.length >= MAX_COLUMNS) return null;
 
@@ -423,6 +488,7 @@ export function addColumn(tableId: string, input: { name?: string; type?: Column
       name: (input.name ?? `Column ${table.columns.length + 1}`).trim().slice(0, COLUMN_NAME_MAX_LENGTH),
       type: input.type ?? 'text',
       width: DEFAULT_COLUMN_WIDTH,
+      options: toOptions(input.options),
     };
 
     return { ...table, columns: [...table.columns, column] };
@@ -500,6 +566,164 @@ export function deleteColumn(tableId: string, columnId: string): boolean {
       }),
       filters: table.filters.filter((filter) => filter.columnId !== columnId),
       sort: table.sort?.columnId === columnId ? null : table.sort,
+    };
+  });
+}
+
+/* -------------------------------------------------------------------------- */
+/*  The list a column offers                                                  */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Which of a column's choices a cell is holding, or null when it is holding
+ * something else — a word typed before the list had it, or a choice since
+ * taken off. Nothing is rewritten by the answer: an off-list cell still says
+ * what it says and still shows it, exactly as a tick box column holds every
+ * spelling of a tick somebody has already written.
+ */
+export function optionFor(column: Column, value: string): string | null {
+  const at = optionIndex(column, value);
+  return at === -1 ? null : column.options[at];
+}
+
+/**
+ * Where on the list a cell's value sits, or -1 for a value the list does not
+ * offer. The place rather than the name, because the place is what a choice's
+ * colour is taken from — a list of choices that are all one colour is a list
+ * you have to read instead of glance at.
+ */
+export function optionIndex(column: Column, value: string): number {
+  const wanted = value.trim();
+  if (!wanted) return -1;
+
+  return column.options.findIndex((each) => sameOption(each, wanted));
+}
+
+/**
+ * The same, for sorting: anything not on the list comes after everything that
+ * is. It is not a choice yet, and the point of the order is to read the
+ * choices in the order they were put in.
+ */
+function optionRank(column: Column, value: string): number {
+  const at = optionIndex(column, value);
+  return at === -1 ? column.options.length : at;
+}
+
+/**
+ * Every value in this column that the list does not offer, each one once.
+ *
+ * This is what makes retyping a column somebody has been filling in by hand
+ * into a list of choices worth doing: the words already down the column are
+ * gathered here and added to the list in one go, rather than being typed out
+ * again by hand or quietly becoming a column of things that match nothing.
+ */
+export function unlistedValues(table: TableDoc, column: Column): string[] {
+  const found: string[] = [];
+
+  for (const row of table.rows) {
+    const value = cellValue(row, column.id).trim();
+    if (!value || optionFor(column, value)) continue;
+    if (found.some((each) => sameOption(each, value))) continue;
+
+    found.push(value.slice(0, OPTION_MAX_LENGTH));
+    if (found.length >= MAX_COLUMN_OPTIONS) break;
+  }
+
+  return found;
+}
+
+/** One choice on the end of the list, refused if it is already on it. */
+export function addOption(tableId: string, columnId: string, name: string): boolean {
+  return editTable(tableId, (table) => {
+    const column = table.columns.find((each) => each.id === columnId);
+    if (!column) return null;
+
+    const wanted = name.trim().slice(0, OPTION_MAX_LENGTH);
+    if (!wanted || column.options.length >= MAX_COLUMN_OPTIONS) return null;
+    if (column.options.some((each) => sameOption(each, wanted))) return null;
+
+    return {
+      ...table,
+      columns: table.columns.map((each) =>
+        each.id === columnId ? { ...each, options: [...each.options, wanted] } : each
+      ),
+    };
+  });
+}
+
+/**
+ * A choice renamed, carrying every cell holding it along with it.
+ *
+ * This is the one place a cell is rewritten by something other than typing in
+ * it, and it is deliberate: a cell of a select column *is* the choice, so a
+ * choice renamed and its cells left behind would empty half the column of
+ * anything the list could still match. Taking a choice off the list is the
+ * other way round — see `removeOption`.
+ */
+export function renameOption(tableId: string, columnId: string, from: string, to: string): boolean {
+  return editTable(tableId, (table) => {
+    const column = table.columns.find((each) => each.id === columnId);
+    if (!column) return null;
+
+    const wanted = to.trim().slice(0, OPTION_MAX_LENGTH);
+    if (!wanted || !column.options.some((each) => sameOption(each, from))) return null;
+    // Its own new spelling is allowed through — "done" to "Done" is a rename.
+    if (column.options.some((each) => sameOption(each, wanted) && !sameOption(each, from))) return null;
+
+    return {
+      ...table,
+      columns: table.columns.map((each) =>
+        each.id === columnId
+          ? { ...each, options: each.options.map((option) => (sameOption(option, from) ? wanted : option)) }
+          : each
+      ),
+      rows: table.rows.map((row) => {
+        if (!sameOption(cellValue(row, columnId), from)) return row;
+        return { ...row, cells: { ...row.cells, [columnId]: wanted } };
+      }),
+    };
+  });
+}
+
+/**
+ * A choice off the list. Every cell already holding it is left exactly as it
+ * was — the same rule the diet menu follows, and the same reason: what was
+ * written down happened, and a list you have stopped offering is not a reason
+ * to go back and empty the rows that used it. Those cells simply stop matching
+ * anything on the list, and putting the choice back makes them chips again.
+ */
+export function removeOption(tableId: string, columnId: string, name: string): boolean {
+  return editTable(tableId, (table) => {
+    const column = table.columns.find((each) => each.id === columnId);
+    if (!column || !column.options.some((each) => sameOption(each, name))) return null;
+
+    return {
+      ...table,
+      columns: table.columns.map((each) =>
+        each.id === columnId
+          ? { ...each, options: each.options.filter((option) => !sameOption(option, name)) }
+          : each
+      ),
+    };
+  });
+}
+
+/** A choice one place up or down the list, which is the order it is read in. */
+export function moveOption(tableId: string, columnId: string, name: string, delta: -1 | 1): boolean {
+  return editTable(tableId, (table) => {
+    const column = table.columns.find((each) => each.id === columnId);
+    if (!column) return null;
+
+    const from = column.options.findIndex((each) => sameOption(each, name));
+    const to = from + delta;
+    if (from === -1 || to < 0 || to >= column.options.length) return null;
+
+    const options = [...column.options];
+    [options[from], options[to]] = [options[to], options[from]];
+
+    return {
+      ...table,
+      columns: table.columns.map((each) => (each.id === columnId ? { ...each, options } : each)),
     };
   });
 }
@@ -732,6 +956,13 @@ const TEXT_OPERATORS: readonly FilterOperator[] = [
 /** A picture column is text, plus the two questions only it can be asked. */
 const NOTE_OPERATORS: readonly FilterOperator[] = [...TEXT_OPERATORS, 'has-image', 'no-image'];
 
+/**
+ * A choice is one of a set rather than a point on a scale, so the questions
+ * worth asking of it are which one it is and whether it has been answered at
+ * all. "Contains" would be asking about the spelling of a chip you picked.
+ */
+const SELECT_OPERATORS: readonly FilterOperator[] = ['is', 'is-not', 'empty', 'not-empty'];
+
 const ORDERED_OPERATORS: readonly FilterOperator[] = [
   'is',
   'is-not',
@@ -747,6 +978,7 @@ const ORDERED_OPERATORS: readonly FilterOperator[] = [
 export function operatorsFor(type: ColumnType): readonly FilterOperator[] {
   if (type === 'note') return NOTE_OPERATORS;
   if (type === 'check') return CHECK_OPERATORS;
+  if (type === 'select') return SELECT_OPERATORS;
   return type === 'text' ? TEXT_OPERATORS : ORDERED_OPERATORS;
 }
 
@@ -874,8 +1106,18 @@ export function matchesFilter(row: Row, column: Column, filter: Filter): boolean
   }
 
   // A comparison with nothing to compare against is not a filter yet — the row
-  // stays put while the value is still being typed.
+  // stays put while the value is still being typed, or while the choice to
+  // compare against has not been picked.
   if (!filter.value.trim()) return true;
+
+  // A choice is the same choice or it is not. Read as a comparison it would go
+  // through `localeCompare`, where a numeric collation makes "Batch 2" and
+  // "Batch 02" one answer — which is fine for sorting a column and wrong for
+  // saying which chip is in the cell.
+  if (column.type === 'select') {
+    const same = sameOption(cell, filter.value);
+    return filter.operator === 'is-not' ? !same : same;
+  }
 
   const order = compareValues(cell, filter.value, column.type);
   if (order === null) return false;
@@ -984,7 +1226,8 @@ export function cycleSort(tableId: string, columnId: string): boolean {
  * whichever way round the sort is — a blank is not a small value, it is a row
  * nobody has filled in yet, and it belongs at the bottom either way.
  */
-function compareCells(a: string, b: string, type: ColumnType): number {
+function compareCells(a: string, b: string, column: Column): number {
+  const type = column.type;
   const left = readable(a, type).trim();
   const right = readable(b, type).trim();
 
@@ -994,6 +1237,16 @@ function compareCells(a: string, b: string, type: ColumnType): number {
   if (type === 'check') return Number(isTicked(left)) - Number(isTicked(right));
 
   if (!left || !right) return left ? -1 : right ? 1 : 0;
+
+  // A list is in the order somebody put it in, and that order is the answer to
+  // "sort by this column": To do, then Doing, then Done. Alphabetically that
+  // reads Doing, Done, To do, which is not a state of anything. Two cells the
+  // list does not offer rank the same and fall through to reading as text.
+  if (type === 'select') {
+    const first = optionRank(column, left);
+    const second = optionRank(column, right);
+    if (first !== second) return first - second;
+  }
 
   if (type === 'number') {
     const first = toNumber(left);
@@ -1031,7 +1284,7 @@ export function visibleRows(table: TableDoc): Row[] {
   const direction = sort.direction === 'asc' ? 1 : -1;
 
   return [...rows].sort(
-    (a, b) => direction * compareCells(cellValue(a, column.id), cellValue(b, column.id), column.type)
+    (a, b) => direction * compareCells(cellValue(a, column.id), cellValue(b, column.id), column)
   );
 }
 

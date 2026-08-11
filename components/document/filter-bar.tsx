@@ -103,21 +103,42 @@ export function FilterBar({ table }: { table: TableDoc }) {
                   ))}
                 </select>
 
-                {operatorNeedsValue(filter.operator) && (
-                  <input
-                    value={filter.value}
-                    onChange={(event) => updateFilter(table.id, filter.id, { value: event.target.value })}
-                    type={column.type === 'date' ? 'date' : 'text'}
-                    inputMode={column.type === 'number' ? 'decimal' : undefined}
-                    maxLength={CELL_MAX_LENGTH}
-                    dir="auto"
-                    placeholder={column.type === 'number' ? '0' : 'What to look for'}
-                    aria-label={`What ${column.name} is compared against`}
-                    className={`${CONTROL} ${SOLID} min-w-0 flex-1 basis-32 placeholder:text-gray-500 dark:placeholder:text-gray-400 ${
-                      column.type === 'date' ? '[color-scheme:light] dark:[color-scheme:dark]' : ''
-                    }`}
-                  />
-                )}
+                {operatorNeedsValue(filter.operator) &&
+                  (column.type === 'select' ? (
+                    // A choice is picked from the same list the cells are, so
+                    // a filter cannot be left asking for a spelling no cell in
+                    // the column has. An empty one is not a filter yet — every
+                    // row stays until one is chosen.
+                    <select
+                      value={filter.value}
+                      onChange={(event) => updateFilter(table.id, filter.id, { value: event.target.value })}
+                      aria-label={`Which choice ${column.name} is compared against`}
+                      className={`${SELECT} min-w-0 flex-1 basis-32`}
+                    >
+                      <option value="">
+                        {column.options.length === 0 ? 'This list is empty' : 'Pick a choice'}
+                      </option>
+                      {column.options.map((option) => (
+                        <option key={option} value={option}>
+                          {option}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      value={filter.value}
+                      onChange={(event) => updateFilter(table.id, filter.id, { value: event.target.value })}
+                      type={column.type === 'date' ? 'date' : 'text'}
+                      inputMode={column.type === 'number' ? 'decimal' : undefined}
+                      maxLength={CELL_MAX_LENGTH}
+                      dir="auto"
+                      placeholder={column.type === 'number' ? '0' : 'What to look for'}
+                      aria-label={`What ${column.name} is compared against`}
+                      className={`${CONTROL} ${SOLID} min-w-0 flex-1 basis-32 placeholder:text-gray-500 dark:placeholder:text-gray-400 ${
+                        column.type === 'date' ? '[color-scheme:light] dark:[color-scheme:dark]' : ''
+                      }`}
+                    />
+                  ))}
 
                 <button
                   type="button"
