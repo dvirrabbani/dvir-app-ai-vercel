@@ -20,7 +20,7 @@ check that a table cell's stored markers and its editing surface stay exact
 inverses. It needs no runner, and the invariant it guards is invisible until a
 cell has quietly grown a dozen underscores. See the rich-text section below.
 
-`.claude/launch.json` defines two preview configs: `dev` *attaches* to an already-running server on :3000 (it has no command, so start `bun run dev` yourself first), and `prod` runs `next start -p 3100`.
+`.claude/launch.json` defines the preview configs: `dev` *attaches* to an already-running server on :3000 (it has no command, so start `bun run dev` yourself first), `dev-start` runs `bun run dev` on :3000, `dev-3001` runs the same on :3001 for when something else already holds :3000, and `prod` runs `next start -p 3100`.
 
 `.env.local` (from `.env.example`) holds `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`. Auth is optional for most pages — only `/profile` requires a session; the sign-in button in the navbar is the only other consumer.
 
@@ -281,6 +281,35 @@ stays open behind it by ignoring mousedowns inside `[VIEWER_MARK]`.
 spreadsheet is: click to put the cursor on a cell, type to replace it, Enter down
 (adding a row at the bottom), Tab across and round, arrows to move, Escape to put
 back. There is no edit button anywhere on purpose.
+
+A table is **made at the size it is asked for**: "New table" opens two boxes,
+rows and columns, and the empty state has the same pair above its button, the
+way the blog editor's toolbar asks before inserting a table into a post. The
+first three columns are still the name, the number and the date; anything past
+them is plain text, which is the type that loses nothing when it is retyped.
+`addTable(name, { rows, columns })` clamps both to what a table can hold, and an
+empty box means the usual three rather than no table — the boxes are held as the
+*strings* that are in them, so one cleared to type "12" is empty for that moment
+instead of snapping back to a 0 the cursor has to be got past. What the numbers
+come to is said under the boxes before the button is pressed (`describeSize`),
+which is how asking for 9999 rows reads as "500 rows" rather than silently
+becoming that.
+
+A row and a column can also go in **beside** one that is already there, rather
+than only at the end: the ⋮ beside a row's number opens Insert row above/below
+(and Duplicate, which used to be an icon of its own — three icons do not fit in
+a 48px column, and the bin is the one worth keeping out in the open), and the ⋮
+in a heading opens Insert column left/right. Both are positions in the *stored*
+order, which is the only order there is — a sort is a way of looking at the rows
+and `visibleRows` never rearranges them — so a row put under the one you are
+looking at while a sort is on appears wherever that sort puts it. The footnote
+says so while a sort is on rather than the menu refusing, since the row does go
+where it was asked to go. The row's menu is `position: fixed` against the button
+that opened it, like the note panel and the list of choices: drawn inside the
+scroll box it would be cut off on every row near the bottom. Its button carries
+`data-row-menu` so the menu's own click-away can tell a click on the trigger
+apart from a click elsewhere — closing on that mousedown would only have the
+click reopen it, and the toggle would never shut.
 
 `app/document` is the one page that is **not** in the site's `max-w-6xl` reading
 column: the table takes the window's full width (the heading and the footnote

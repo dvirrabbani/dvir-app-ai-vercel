@@ -23,6 +23,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
 import {
+  Check,
   Filter as FilterIcon,
   Maximize2,
   Minimize2,
@@ -39,6 +40,10 @@ import { FilterBar } from '@/components/document/filter-bar';
 import { PictureFolderButton } from '@/components/document/picture-folder';
 import { TableGrid } from '@/components/document/table-grid';
 import {
+  DEFAULT_TABLE_COLUMNS,
+  DEFAULT_TABLE_ROWS,
+  MAX_COLUMNS,
+  MAX_ROWS,
   MAX_TABLES,
   TABLE_NAME_MAX_LENGTH,
   TableDoc,
@@ -59,6 +64,89 @@ const SOLID = 'text-[#171717] dark:text-[#FAFAFA]';
 
 const TOOL_BUTTON =
   'inline-flex shrink-0 items-center gap-1.5 rounded-xl border border-black/10 px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/10';
+
+const SIZE_FIELD =
+  'w-16 rounded-lg border border-black/10 bg-white/70 px-2 py-1 text-sm tabular-nums outline-none transition-colors focus:border-[#FF4D8E]/50 dark:border-white/10 dark:bg-white/5';
+
+/**
+ * How big the table about to be made is, as two numbers you type.
+ *
+ * Kept as the strings that are in the boxes rather than as numbers, so a box
+ * being cleared to type "12" is an empty box for that moment instead of
+ * snapping back to a 0 the cursor then has to be got past. What they mean is
+ * settled by `addTable`, which clamps them to a size a table can be and takes
+ * the usual three of either when the box says nothing at all.
+ */
+function SizeFields({
+  rows,
+  columns,
+  onRows,
+  onColumns,
+  onSubmit,
+}: {
+  rows: string;
+  columns: string;
+  onRows: (value: string) => void;
+  onColumns: (value: string) => void;
+  /** Enter in either box makes the table, the way Enter in a form does. */
+  onSubmit: () => void;
+}) {
+  const keys = (event: React.KeyboardEvent) => {
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    onSubmit();
+  };
+
+  return (
+    <>
+      <label className={`flex shrink-0 items-center gap-1.5 text-xs font-medium ${MUTED}`}>
+        Rows
+        <input
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={MAX_ROWS}
+          value={rows}
+          onChange={(event) => onRows(event.target.value)}
+          onKeyDown={keys}
+          aria-label="How many rows"
+          className={SIZE_FIELD}
+        />
+      </label>
+
+      <label className={`flex shrink-0 items-center gap-1.5 text-xs font-medium ${MUTED}`}>
+        Columns
+        <input
+          type="number"
+          inputMode="numeric"
+          min={1}
+          max={MAX_COLUMNS}
+          value={columns}
+          onChange={(event) => onColumns(event.target.value)}
+          onKeyDown={keys}
+          aria-label="How many columns"
+          className={SIZE_FIELD}
+        />
+      </label>
+    </>
+  );
+}
+
+/** What the size boxes come to once a table has been made of them, said in the
+ *  same words in both places the boxes appear. */
+function describeSize(rows: string, columns: string): string {
+  const within = (value: string, most: number, fallback: number) => {
+    const asked = Math.round(Number(value));
+    return !Number.isFinite(asked) || asked < 1 ? fallback : Math.min(most, asked);
+  };
+
+  const madeRows = within(rows, MAX_ROWS, DEFAULT_TABLE_ROWS);
+  const madeColumns = within(columns, MAX_COLUMNS, DEFAULT_TABLE_COLUMNS);
+
+  return `${madeRows} row${madeRows === 1 ? '' : 's'} and ${madeColumns} column${
+    madeColumns === 1 ? '' : 's'
+  }`;
+}
 
 /** The table's name, edited where it is written. */
 function TableName({ table }: { table: TableDoc }) {
@@ -103,6 +191,10 @@ export default function DocumentPage() {
   /** In full screen, whether the grid is on its own with nothing above it. */
   const [justTable, setJustTable] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  /** Whether the size of a new table is being asked for, and what it says. */
+  const [sizing, setSizing] = useState(false);
+  const [newRows, setNewRows] = useState(String(DEFAULT_TABLE_ROWS));
+  const [newColumns, setNewColumns] = useState(String(DEFAULT_TABLE_COLUMNS));
 
   /** Whether the tables, the name and the tools are on the screen at all. */
   const tools = !(fullscreen && justTable);
@@ -119,9 +211,12 @@ export default function DocumentPage() {
   }, []);
 
   const handleAddTable = useCallback(() => {
-    const made = addTable();
-    if (made) select(made.id);
-  }, [select]);
+    const made = addTable(undefined, { rows: Number(newRows), columns: Number(newColumns) });
+    if (!made) return;
+
+    select(made.id);
+    setSizing(false);
+  }, [newColumns, newRows, select]);
 
   const handleDelete = useCallback(() => {
     if (!table) return;
@@ -170,36 +265,83 @@ export default function DocumentPage() {
 
   /* ------------------------------------------------------------------------ */
 
+  const full = tables.length >= MAX_TABLES;
+
   const tabs = (
-    <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
-      {tables.map((each) => (
+    <div className="space-y-2">
+      <div className="flex items-center gap-1.5 overflow-x-auto pb-1">
+        {tables.map((each) => (
+          <button
+            key={each.id}
+            type="button"
+            onClick={() => select(each.id)}
+            aria-pressed={each.id === table?.id}
+            dir="auto"
+            className={`inline-flex max-w-48 shrink-0 items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition-colors ${
+              each.id === table?.id
+                ? 'bg-[#D81B60] text-white'
+                : `border border-black/10 hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/10 ${SOLID}`
+            }`}
+          >
+            <Table2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
+            <span className="truncate">{each.name}</span>
+          </button>
+        ))}
+
+        {/* The size is asked for rather than assumed: this opens the two boxes
+            below instead of making a 3×3 there and then. */}
         <button
-          key={each.id}
           type="button"
-          onClick={() => select(each.id)}
-          aria-pressed={each.id === table?.id}
-          dir="auto"
-          className={`inline-flex max-w-48 shrink-0 items-center gap-1.5 rounded-xl px-3 py-1.5 text-xs font-medium transition-colors ${
-            each.id === table?.id
-              ? 'bg-[#D81B60] text-white'
-              : `border border-black/10 hover:bg-black/5 dark:border-white/10 dark:hover:bg-white/10 ${SOLID}`
+          onClick={() => setSizing((was) => !was)}
+          disabled={full}
+          aria-expanded={sizing}
+          title={full ? `${MAX_TABLES} tables is the lot` : 'Start another table'}
+          className={`${TOOL_BUTTON} disabled:cursor-not-allowed disabled:opacity-40 ${
+            sizing ? 'text-[#D81B60] dark:text-[#FF9EC1]' : MUTED
           }`}
         >
-          <Table2 className="h-3.5 w-3.5 shrink-0" aria-hidden />
-          <span className="truncate">{each.name}</span>
+          <Plus className="h-3.5 w-3.5" />
+          New table
         </button>
-      ))}
+      </div>
 
-      <button
-        type="button"
-        onClick={handleAddTable}
-        disabled={tables.length >= MAX_TABLES}
-        title={tables.length >= MAX_TABLES ? `${MAX_TABLES} tables is the lot` : 'Start another table'}
-        className={`${TOOL_BUTTON} disabled:cursor-not-allowed disabled:opacity-40 ${MUTED}`}
-      >
-        <Plus className="h-3.5 w-3.5" />
-        New table
-      </button>
+      {sizing && !full && (
+        <div className="flex flex-wrap items-center gap-2 rounded-xl border border-black/10 bg-white/70 px-3 py-2 dark:border-white/10 dark:bg-white/[0.04]">
+          <Table2 className="h-4 w-4 shrink-0 text-[#FF4D8E]" aria-hidden />
+
+          <SizeFields
+            rows={newRows}
+            columns={newColumns}
+            onRows={setNewRows}
+            onColumns={setNewColumns}
+            onSubmit={handleAddTable}
+          />
+
+          <button
+            type="button"
+            onClick={handleAddTable}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-xl bg-[#D81B60] px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-[#C2185B]"
+          >
+            <Check className="h-3.5 w-3.5" />
+            Make table
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setSizing(false)}
+            className={`${TOOL_BUTTON} ${MUTED}`}
+          >
+            <X className="h-3.5 w-3.5" />
+            Cancel
+          </button>
+
+          <p className={`w-full text-xs ${MUTED}`}>
+            {describeSize(newRows, newColumns)} — a name, a number and a date to start with, and any past
+            those three plain text you can retype from the heading. Rows go up to {MAX_ROWS}, columns to{' '}
+            {MAX_COLUMNS}.
+          </p>
+        </div>
+      )}
     </div>
   );
 
@@ -385,9 +527,21 @@ export default function DocumentPage() {
             <Table2 className="mx-auto mb-3 h-8 w-8 text-[#FF4D8E]" aria-hidden />
             <h2 className={`mb-2 text-xl font-semibold ${SOLID}`}>No tables yet</h2>
             <p className={`mx-auto mb-5 max-w-md text-sm ${MUTED}`}>
-              A new table starts with three columns — a name, a number and a date — and you rename, retype or
-              throw away any of them from the menu on its heading.
+              Say how big it is and it is made that size. The first three columns are a name, a number and a
+              date, anything past them is plain text, and you rename, retype or throw away any of them from
+              the menu on its heading — as you add and remove rows and columns later.
             </p>
+
+            <div className="mb-4 flex flex-wrap items-center justify-center gap-3">
+              <SizeFields
+                rows={newRows}
+                columns={newColumns}
+                onRows={setNewRows}
+                onColumns={setNewColumns}
+                onSubmit={handleAddTable}
+              />
+            </div>
+
             <button
               type="button"
               onClick={handleAddTable}
@@ -396,6 +550,8 @@ export default function DocumentPage() {
               <Plus className="h-4 w-4" />
               Make your first table
             </button>
+
+            <p className={`mt-3 text-xs ${MUTED}`}>{describeSize(newRows, newColumns)}</p>
           </section>
         ) : (
           <section className="glass-card rounded-2xl p-3 md:p-5">

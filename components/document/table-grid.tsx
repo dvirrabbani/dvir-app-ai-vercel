@@ -17,7 +17,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown,
+  ArrowDownToLine,
+  ArrowLeftToLine,
+  ArrowRightToLine,
   ArrowUp,
+  ArrowUpToLine,
   ChevronLeft,
   ChevronRight,
   Copy,
@@ -150,6 +154,8 @@ function HeaderMenu({
     return () => document.removeEventListener('mousedown', close);
   }, [open]);
 
+  const full = table.columns.length >= MAX_COLUMNS;
+
   const item =
     'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-white/10';
 
@@ -223,6 +229,38 @@ function HeaderMenu({
             <FilterIcon className="h-3.5 w-3.5 shrink-0" />
             Filter by this column
           </button>
+
+          {/* A new column beside this one rather than at the far end. The + in
+              the corner still adds at the end, which is where a column is
+              usually wanted; this is for the one that belongs next to
+              something. */}
+          <button
+            type="button"
+            disabled={full}
+            onClick={() => {
+              addColumn(table.id, { at: index });
+              setOpen(false);
+            }}
+            title={full ? `A table holds ${MAX_COLUMNS} columns` : `Add a column before ${column.name}`}
+            className={`${item} ${SOLID}`}
+          >
+            <ArrowLeftToLine className="h-3.5 w-3.5 shrink-0" />
+            Insert column left
+          </button>
+          <button
+            type="button"
+            disabled={full}
+            onClick={() => {
+              addColumn(table.id, { at: index + 1 });
+              setOpen(false);
+            }}
+            title={full ? `A table holds ${MAX_COLUMNS} columns` : `Add a column after ${column.name}`}
+            className={`${item} ${SOLID}`}
+          >
+            <ArrowRightToLine className="h-3.5 w-3.5 shrink-0" />
+            Insert column right
+          </button>
+
           <button
             type="button"
             disabled={index === 0}
@@ -628,6 +666,119 @@ function GridCell({
 }
 
 /* -------------------------------------------------------------------------- */
+/*  The menu on a row                                                         */
+/* -------------------------------------------------------------------------- */
+
+/** Measured rather than guessed: this is only what the menu is *placed* by, so
+ *  it opens upwards near the bottom of the window instead of off the edge. */
+const ROW_MENU_WIDTH = 184;
+const ROW_MENU_HEIGHT = 112;
+
+/** On the button that opens a row's menu, so the menu can tell that button
+ *  apart from a click anywhere else. */
+const ROW_MENU_TRIGGER = 'data-row-menu';
+
+/**
+ * What can be done to one row: a blank one put in over or under it, or a copy
+ * of it. It is a menu rather than three more icons beside the number because
+ * that column is 48 pixels wide and everything in it has to stay legible on
+ * every row of a long table; the bin stays out in the open, being the one of
+ * them anybody reaches for in a hurry.
+ *
+ * Rendered by the grid rather than inside the row, and `position: fixed`
+ * against the button that asked for it — the same rule the note panel and the
+ * list of choices follow, since a menu drawn inside the scrolling box is cut
+ * off by its edge on every row near the bottom.
+ */
+function RowMenu({
+  anchor,
+  full,
+  number,
+  onInsert,
+  onDuplicate,
+  onClose,
+}: {
+  anchor: DOMRect;
+  /** No room for another row: inserting and duplicating are both off. */
+  full: boolean;
+  /** Which row it belongs to as the screen has it, for what it says out loud. */
+  number: number;
+  onInsert: (where: 'above' | 'below') => void;
+  onDuplicate: () => void;
+  onClose: () => void;
+}) {
+  const box = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const away = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      // The button that opens one is not "away": it closes the menu itself, by
+      // being a toggle, and closing here first would only have it opened again
+      // by the click that follows.
+      if (box.current?.contains(target) || target?.closest(`[${ROW_MENU_TRIGGER}]`)) return;
+      onClose();
+    };
+
+    document.addEventListener('mousedown', away);
+    return () => document.removeEventListener('mousedown', away);
+  }, [onClose]);
+
+  const left = Math.max(8, Math.min(anchor.left, window.innerWidth - ROW_MENU_WIDTH - 8));
+  const below = anchor.bottom + 4;
+  const top =
+    below + ROW_MENU_HEIGHT > window.innerHeight
+      ? Math.max(8, anchor.top - ROW_MENU_HEIGHT - 4)
+      : below;
+
+  const item =
+    'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-white/10';
+
+  const title = full ? `A table holds ${MAX_ROWS} rows` : undefined;
+
+  return (
+    <div
+      ref={box}
+      style={{ left, top, width: ROW_MENU_WIDTH }}
+      className={`fixed z-50 rounded-xl border bg-white p-1 shadow-lg dark:bg-[#26262A] ${LINE}`}
+    >
+      <button
+        type="button"
+        disabled={full}
+        onClick={() => onInsert('above')}
+        title={title}
+        className={`${item} ${SOLID}`}
+      >
+        <ArrowUpToLine className="h-3.5 w-3.5 shrink-0" />
+        Insert row above
+      </button>
+      <button
+        type="button"
+        disabled={full}
+        onClick={() => onInsert('below')}
+        title={title}
+        className={`${item} ${SOLID}`}
+      >
+        <ArrowDownToLine className="h-3.5 w-3.5 shrink-0" />
+        Insert row below
+      </button>
+
+      <div className={`my-1 border-t ${LINE}`} />
+
+      <button
+        type="button"
+        disabled={full}
+        onClick={onDuplicate}
+        title={title ?? `Copy row ${number} into a new row under it`}
+        className={`${item} ${SOLID}`}
+      >
+        <Copy className="h-3.5 w-3.5 shrink-0" />
+        Duplicate row
+      </button>
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /*  The grid                                                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -651,6 +802,8 @@ export function TableGrid({
   /** The cell whose choices are open, and the column whose list is. */
   const [pick, setPick] = useState<OpenPick | null>(null);
   const [list, setList] = useState<OpenList | null>(null);
+  /** The row whose menu is open, and where on the screen to open it against. */
+  const [rowMenu, setRowMenu] = useState<{ rowId: string; anchor: DOMRect } | null>(null);
   /** The cell's pictures being read over the page, and which of them is up. */
   const [viewing, setViewing] = useState<{ names: string[]; at: number } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -917,6 +1070,17 @@ export function TableGrid({
     if (id && columns[0]) setCursor({ rowId: id, columnId: columns[0].id });
   }, [columns, table.id]);
 
+  /** A blank row put in beside another, the cursor going straight into it: the
+   *  reason for putting one there is to type in it. */
+  const insertRow = useCallback(
+    (rowId: string, where: 'above' | 'below') => {
+      const id = addRow(table.id, rowId, where);
+      if (id && columns[0]) setCursor({ rowId: id, columnId: columns[0].id });
+      setRowMenu(null);
+    },
+    [columns, table.id]
+  );
+
   /**
    * A snip pasted onto a cell without opening it first. It is written to the
    * folder and only its name comes back — nothing about a picture is ever put
@@ -1047,21 +1211,30 @@ export function TableGrid({
                     </span>
 
                     {/* Only on the row under the pointer or the cursor: a bin
-                        on every line at once is a page of bins. */}
+                        on every line at once is a page of bins. The row whose
+                        menu is open is held visible too — the pointer has to
+                        leave the row to reach the menu. */}
                     <span
                       className={`flex shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 ${
-                        cursor?.rowId === row.id ? 'opacity-100' : ''
+                        cursor?.rowId === row.id || rowMenu?.rowId === row.id ? 'opacity-100' : ''
                       }`}
                     >
                       <button
                         type="button"
-                        onClick={() => duplicateRow(table.id, row.id)}
-                        disabled={full}
-                        title="Duplicate this row"
-                        aria-label={`Duplicate row ${rowIndex + 1}`}
-                        className={`rounded p-0.5 transition-colors hover:bg-black/10 disabled:opacity-30 dark:hover:bg-white/10 ${MUTED}`}
+                        {...{ [ROW_MENU_TRIGGER]: '' }}
+                        onClick={(event) => {
+                          // Measured here rather than inside the update: React
+                          // runs that later, by which time the event has been
+                          // let go of and `currentTarget` is null.
+                          const anchor = event.currentTarget.getBoundingClientRect();
+                          setRowMenu((was) => (was?.rowId === row.id ? null : { rowId: row.id, anchor }));
+                        }}
+                        title="What can be done to this row"
+                        aria-label={`Options for row ${rowIndex + 1}`}
+                        aria-expanded={rowMenu?.rowId === row.id}
+                        className={`rounded p-0.5 transition-colors hover:bg-black/10 dark:hover:bg-white/10 ${MUTED}`}
                       >
-                        <Copy className="h-3 w-3" />
+                        <MoreVertical className="h-3 w-3" />
                       </button>
                       <button
                         type="button"
@@ -1167,6 +1340,20 @@ export function TableGrid({
         />
       )}
 
+      {rowMenu && (
+        <RowMenu
+          anchor={rowMenu.anchor}
+          full={full}
+          number={rows.findIndex((row) => row.id === rowMenu.rowId) + 1}
+          onInsert={(where) => insertRow(rowMenu.rowId, where)}
+          onDuplicate={() => {
+            duplicateRow(table.id, rowMenu.rowId);
+            setRowMenu(null);
+          }}
+          onClose={() => setRowMenu(null)}
+        />
+      )}
+
       {openList && (
         <OptionListPanel
           table={table}
@@ -1212,7 +1399,11 @@ export function TableGrid({
         for italic, <strong className="font-medium">Ctrl+Alt+1</strong> for a title, or the buttons under the
         cell — which write <code className="font-mono">**bold**</code> and{' '}
         <code className="font-mono"># Title</code> into the cell itself, so nothing is lost by retyping the
-        column.
+        column. A row goes in beside another one from the{' '}
+        <strong className="font-medium">⋮</strong> beside its number, and a column from the{' '}
+        <strong className="font-medium">⋮</strong> in its heading.
+        {table.sort &&
+          ' While a sort is on, the rows are only shown in that order — a row inserted above or below another goes in beside it in the stored order, and may appear elsewhere on the screen.'}
         {hidden > 0 && ` A filter is hiding ${hidden} row${hidden === 1 ? '' : 's'}, and a new row starts empty, so it may be hidden the moment it is added.`}
       </p>
     </div>
