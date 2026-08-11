@@ -24,6 +24,7 @@ import Link from 'next/link';
 import { motion } from 'framer-motion';
 import {
   Check,
+  Copy,
   Filter as FilterIcon,
   Maximize2,
   Minimize2,
@@ -50,6 +51,7 @@ import {
   addTable,
   deleteTable,
   describeCount,
+  duplicateTable,
   imageNamesIn,
   renameTable,
   toggleStickyHeader,
@@ -217,6 +219,16 @@ export default function DocumentPage() {
     select(made.id);
     setSizing(false);
   }, [newColumns, newRows, select]);
+
+  /** The whole table again, columns, cells and view alike, and opened on it —
+   *  the copy is the one about to be changed, or there would be no reason to
+   *  have made it. */
+  const handleDuplicate = useCallback(() => {
+    if (!table) return;
+
+    const made = duplicateTable(table.id);
+    if (made) select(made.id);
+  }, [select, table]);
 
   const handleDelete = useCallback(() => {
     if (!table) return;
@@ -415,6 +427,24 @@ export default function DocumentPage() {
             Just the table
           </button>
         )}
+
+        {/* Disabled with the reason on it rather than hidden when there is no
+            room for another table: a control that is simply absent tells the one
+            person who could make room nothing. */}
+        <button
+          type="button"
+          onClick={handleDuplicate}
+          disabled={full}
+          title={
+            full
+              ? `${MAX_TABLES} tables is the lot — delete one to copy this`
+              : `Make a copy of ${table.name}, filters and all`
+          }
+          className={`${TOOL_BUTTON} disabled:cursor-not-allowed disabled:opacity-40 ${MUTED}`}
+        >
+          <Copy className="h-3.5 w-3.5" />
+          Duplicate
+        </button>
 
         {confirmDelete ? (
           <span className="flex shrink-0 items-center gap-1.5">

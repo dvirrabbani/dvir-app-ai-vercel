@@ -240,6 +240,32 @@ of its name or anything stored: a hash puts "To do" and "In progress" on the sam
 tint about half the time, and a column where every chip is one colour is a column
 you have to read instead of glance at.
 
+Every cell in one also carries an **ⓘ beside its chip that opens a page of
+writing about that cell** — what the choice means here, what is blocking it, who
+was asked. It is kept on the row beside the cells (`Row.notes`, column id → the
+writing) for exactly the reason `Row.images` is: the cell goes on holding the one
+word that was picked, so the column still sorts by the order of its list and
+filters by the choice, and the writing is a layer over that rather than a
+different kind of value. Filtering deliberately does **not** read it — "is Done"
+has to mean the chip says Done, or a filter would start matching rows on a word
+three paragraphs into something else. It is the same rich text as everything else
+(`lib/rich-text.ts`, `CELL_NOTE_MAX_LENGTH` of 6,000 — several times a cell,
+since this is the one field meant to be read as a page), written in
+`CellNotePanel` in `cell-select.tsx` — which is *not* `NoteEditor` in
+`cell-note.tsx`: that is a **Text & pictures** cell, a cell that *is* writing,
+and this is writing behind a cell that is a choice. The panel commits on unmount
+for the same reason the note panel does, a click away closing it from a
+`mousedown` before any blur could fire, and plain Enter is a new line in it
+rather than "done, next row down" — it is a page, not a cell on the way down a
+column. `Row.notes` is kept whatever type the column is, like `Column.options`,
+so retyping a column of choices as text and back gives every page return; it goes
+when the column does (`deleteColumn`), and travels with a duplicated row and a
+duplicated table. The tag is only fully out once something is written there —
+an icon burning on all hundred rows is a column you read past — and comes up
+under the pointer or the cursor otherwise (`group/cell`), the way the bin beside
+a row number does. Alt+Enter on the cell opens it, because the grid moves by cell
+and the tag is not its own stop on the way round with Tab.
+
 A column type, **`note`** ("Text & pictures"), holds writing and
 screenshots in the same cell. The file names live on the row beside the cells
 (`Row.images`, column id → names) rather than inside the cell string, so
@@ -310,6 +336,23 @@ scroll box it would be cut off on every row near the bottom. Its button carries
 `data-row-menu` so the menu's own click-away can tell a click on the trigger
 apart from a click elsewhere — closing on that mousedown would only have the
 click reopen it, and the toggle would never shut.
+
+A **whole table** goes again the same way (`duplicateTable`, the Duplicate button
+beside Delete): the columns with their types and lists of choices, every cell as
+the string it holds, and the *view* — the filters, the sort, the sticky
+headings — because a table copied to try something on is a table copied to keep
+looking at the same way. The copy lands directly beside the one it came from and
+the page opens on it, since the copy is the one about to be changed. Ids are
+**not** carried: fresh ones are minted for the columns and rows and the cells,
+the pictures, the filters and the sort are read onto them, or the two tables
+would be one edit away from each other. The pictures come across as the same
+file names rather than as copies on disk, exactly as a duplicated row's do —
+which is safe for the same reason, `discardTableImages` removing nothing that
+another cell or a post still points at. The name counts on rather than nests
+(`copyName`): "Notes (copy)", then "Notes (copy 2)", the suffix already on the
+end taken off before the next goes on, and fitted inside
+`TABLE_NAME_MAX_LENGTH` rather than run past it. Tabs are how a table is found,
+and three of them reading "Notes" are three you have to open to tell apart.
 
 `app/document` is the one page that is **not** in the site's `max-w-6xl` reading
 column: the table takes the window's full width (the heading and the footnote

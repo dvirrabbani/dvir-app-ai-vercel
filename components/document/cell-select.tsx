@@ -18,14 +18,16 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, ChevronUp, Plus, Trash2, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, Info, Plus, Trash2, X } from 'lucide-react';
 import {
+  CELL_NOTE_MAX_LENGTH,
   Column,
   MAX_COLUMN_OPTIONS,
   OPTION_MAX_LENGTH,
   Row,
   TableDoc,
   addOption,
+  cellNote,
   cellValue,
   moveOption,
   optionIndex,
@@ -33,8 +35,15 @@ import {
   renameOption,
   sameOption,
   setCell,
+  setCellNote,
   unlistedValues,
 } from '@/lib/documents';
+import { plainRichText, shortcutCommand } from '@/lib/rich-text';
+import {
+  FormatToolbar,
+  RichCellEditor,
+  RichCellHandle,
+} from '@/components/document/rich-text';
 
 /** Literal greys: `text-muted-foreground` resolves to nothing in this project. */
 const MUTED = 'text-[#4B5563] dark:text-[#9CA3AF]';
@@ -105,18 +114,76 @@ export function OptionChip({
   );
 }
 
-/** The cell as it sits in the table: the chip, or a line kept clickable. */
-export function SelectCellBody({ row, column }: { row: Row; column: Column }) {
-  const value = cellValue(row, column.id).trim();
+/** How much of the writing is put on the tag's tooltip: enough to know which
+ *  cell you are about to open, not enough to be read standing up. */
+const PEEK_LENGTH = 140;
 
-  // A non-breaking space so an empty cell is still a full line tall and can be
-  // clicked on at all.
-  if (!value) return <>{' '}</>;
+/**
+ * The cell as it sits in the table: the chip, and the tag that opens what has
+ * been written about it.
+ *
+ * The tag is only fully out when there *is* something written — a column of a
+ * hundred rows with an icon burning on every one of them is a column you have
+ * to look past to read the chips. On the rest it comes up under the pointer and
+ * when the cursor is on the cell, the same way the bin beside a row number
+ * does, so it is found by reaching for the cell rather than by being told.
+ */
+export function SelectCellBody({
+  row,
+  column,
+  onOpenNote,
+}: {
+  row: Row;
+  column: Column;
+  /** Opens the writing behind this cell, against the tag that asked for it. */
+  onOpenNote: (anchor: DOMRect) => void;
+}) {
+  const value = cellValue(row, column.id).trim();
+  const note = cellNote(row, column.id);
+  const written = note.trim() !== '';
 
   // Shown in the list's own spelling once it is on the list, so a column
   // filled in by hand stops looking like three different answers.
   const place = optionIndex(column, value);
-  return <OptionChip name={place === -1 ? value : column.options[place]} place={place} />;
+
+  const peek = written ? plainRichText(note).replace(/\s+/g, ' ').trim().slice(0, PEEK_LENGTH) : '';
+
+  return (
+    <span className="flex items-start justify-between gap-1">
+      {/* A non-breaking space so an empty cell is still a full line tall and
+          can be clicked on at all. */}
+      {value ? (
+        <OptionChip name={place === -1 ? value : column.options[place]} place={place} className="min-w-0" />
+      ) : (
+        <span>{' '}</span>
+      )}
+
+      <button
+        type="button"
+        // The grid moves by cell, so the tag is not its own stop on the way
+        // round with Tab — the cell it sits in is, and Alt+Enter opens it from
+        // there without the hand leaving the keyboard.
+        tabIndex={-1}
+        // The click is the tag's own: letting it through would put the cursor
+        // on the cell, and the double click behind it would open the list of
+        // choices over the writing just asked for.
+        onClick={(event) => {
+          event.stopPropagation();
+          onOpenNote(event.currentTarget.getBoundingClientRect());
+        }}
+        onDoubleClick={(event) => event.stopPropagation()}
+        title={written ? `${peek}${peek.length === PEEK_LENGTH ? '…' : ''}` : 'Write about this cell (Alt+Enter)'}
+        aria-label={written ? `Read what is written about this cell` : 'Write about this cell'}
+        className={`shrink-0 rounded p-0.5 transition-all hover:bg-black/10 dark:hover:bg-white/10 ${
+          written
+            ? 'text-[#D81B60] dark:text-[#FF9EC1]'
+            : `opacity-0 group-hover/cell:opacity-100 group-focus-within/cell:opacity-100 ${MUTED}`
+        }`}
+      >
+        <Info className="h-3.5 w-3.5" aria-hidden />
+      </button>
+    </span>
+  );
 }
 
 /* -------------------------------------------------------------------------- */
@@ -129,11 +196,15 @@ const PANEL_HEIGHT = 320;
 /** Under whatever opened it if it fits, above it if it does not, never off the
  *  edge. The same rule the note panel follows, and for the same reason: these
  *  are `position: fixed` so the scroll box they belong to cannot clip them. */
-function placePanel(anchor: DOMRect): { left: number; top: number } {
-  const left = Math.max(8, Math.min(anchor.left, window.innerWidth - PANEL_WIDTH - 8));
+function placePanel(
+  anchor: DOMRect,
+  width = PANEL_WIDTH,
+  height = PANEL_HEIGHT
+): { left: number; top: number } {
+  const left = Math.max(8, Math.min(anchor.left, window.innerWidth - width - 8));
 
   const below = anchor.bottom + 4;
-  const top = below + PANEL_HEIGHT > window.innerHeight ? Math.max(8, anchor.top - PANEL_HEIGHT - 4) : below;
+  const top = below + height > window.innerHeight ? Math.max(8, anchor.top - height - 4) : below;
 
   return { left, top };
 }
@@ -364,6 +435,158 @@ export function OptionPicker({
           Empty this cell
         </button>
       )}
+    </div>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Writing about one cell                                                    */
+/* -------------------------------------------------------------------------- */
+
+/** Wider and taller than the other two: this one is written into rather than
+ *  picked from, and a paragraph in a 260px box is a paragraph nobody writes. */
+const NOTE_WIDTH = 380;
+const NOTE_HEIGHT = 440;
+
+/**
+ * The page behind a chip.
+ *
+ * A choice says what state a row is in and nothing else — "Blocked" cannot say
+ * what by, or who was asked, or what happens when the answer comes. That is
+ * what this holds: the same writing a blog post is made of, in the same markers
+ * (`lib/rich-text.ts`), kept against this one cell.
+ *
+ * Not to be confused with `NoteEditor` in `cell-note.tsx`, which is a **Text &
+ * pictures** cell being written — a cell that *is* writing. This is writing
+ * behind a cell that is a choice, and it leaves the cell alone: the chip is
+ * still the one word the column sorts and filters by.
+ *
+ * Written to the same rules as the note panel, for the same reasons. A write
+ * per keystroke would reach storage forty times for one sentence, so the
+ * writing is held here and committed on the way out — and the way out is three
+ * different things, only one of which is the unmount, so what it needs is kept
+ * where the cleanup can still reach it.
+ */
+export function CellNotePanel({
+  table,
+  row,
+  column,
+  anchor,
+  onClose,
+}: {
+  table: TableDoc;
+  row: Row;
+  column: Column;
+  /** Where the tag is on the screen, so the panel opens against it. */
+  anchor: DOMRect;
+  onClose: () => void;
+}) {
+  const stored = cellNote(row, column.id);
+  const value = cellValue(row, column.id).trim();
+
+  const [draft, setDraft] = useState(stored);
+
+  const box = useRef<HTMLDivElement>(null);
+  /** The writing surface, so the formatting buttons have something to act on. */
+  const field = useRef<RichCellHandle>(null);
+  useCloseOnClickAway(box, onClose);
+
+  const latest = useRef(draft);
+  const target = useRef({ tableId: table.id, rowId: row.id, columnId: column.id, stored });
+
+  useEffect(() => {
+    latest.current = draft;
+    target.current = { tableId: table.id, rowId: row.id, columnId: column.id, stored };
+  });
+
+  const commit = useCallback(() => {
+    const { tableId, rowId, columnId, stored: was } = target.current;
+    if (latest.current !== was) setCellNote(tableId, rowId, columnId, latest.current);
+  }, []);
+
+  // `commit` never changes, so this runs on the way out and nowhere else.
+  useEffect(() => commit, [commit]);
+
+  const place = optionIndex(column, value);
+  const left = CELL_NOTE_MAX_LENGTH - draft.length;
+
+  return (
+    <div
+      ref={box}
+      style={{ ...placePanel(anchor, NOTE_WIDTH, NOTE_HEIGHT), width: NOTE_WIDTH, maxHeight: NOTE_HEIGHT }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') {
+          // Held here: this Escape closes the panel and nothing else. It must
+          // not also let go of the cell behind it or leave full screen.
+          event.stopPropagation();
+          onClose();
+        }
+        // Enter makes a new line in here, so there has to be another way out
+        // that keeps your hands where they are.
+        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) onClose();
+      }}
+      className={`${PANEL} ${LINE} overflow-auto`}
+    >
+      <div className="flex items-center gap-1.5">
+        <span className={`min-w-0 shrink truncate text-xs font-semibold ${SOLID}`} dir="auto">
+          {column.name}
+        </span>
+
+        {/* Which cell this is about, said the way the cell itself says it. A
+            panel over a scrolled grid can easily be the only thing on the
+            screen, and "about this cell" is no use once the cell is hidden
+            behind it. */}
+        {value !== '' && <OptionChip name={place === -1 ? value : column.options[place]} place={place} />}
+
+        <button
+          type="button"
+          onClick={onClose}
+          title="Close (Esc)"
+          aria-label="Close"
+          className={`ml-auto shrink-0 rounded p-1 transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${MUTED}`}
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+
+      {/* Written as it will be read — the same surface every other piece of
+          writing on this page uses, showing the bold word bold and never the
+          markers that make it. */}
+      <RichCellEditor
+        ref={field}
+        value={stored}
+        max={CELL_NOTE_MAX_LENGTH}
+        onChange={setDraft}
+        label={`What is written about this ${column.name} cell`}
+        onKeyDown={(event) => {
+          const command = shortcutCommand(event);
+
+          if (command) {
+            event.preventDefault();
+            field.current?.run(command);
+            return;
+          }
+
+          // Plain Enter is a new line rather than "done": this is a page of
+          // writing, not a cell being filled in on the way down a column.
+          if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey) {
+            event.preventDefault();
+            field.current?.breakLine();
+          }
+        }}
+        className={`min-h-40 w-full flex-1 overflow-auto whitespace-pre-wrap break-words rounded-lg border bg-white/70 px-2 py-1.5 text-sm leading-relaxed transition-colors focus:border-[#FF4D8E]/50 focus:ring-2 focus:ring-[#FF4D8E]/20 dark:bg-white/5 ${LINE} ${SOLID}`}
+      />
+
+      <FormatToolbar editor={field} />
+
+      {/* The room left is only worth saying when it is nearly gone; up to then
+          it is a number in the corner telling somebody writing a paragraph
+          that they are being counted. */}
+      <p className={`text-[11px] ${left < 500 ? 'text-[#B3261E] dark:text-[#FFB4AB]' : MUTED}`}>
+        {left < 500
+          ? `${left} characters left.`
+          : 'Ctrl+B is bold and Ctrl+Alt+1 a title. Ctrl+Enter closes. The chip itself is untouched, so the column still sorts and filters by the choice.'}
+      </p>
     </div>
   );
 }
