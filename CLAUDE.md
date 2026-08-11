@@ -274,6 +274,12 @@ the cell itself skips the panel entirely. The page's full screen is a
 `fixed inset-0` overlay rather than the browser's own Fullscreen API — the same
 workspace, given the whole window, without hiding the browser's chrome as well.
 Escape unwinds one layer at a time: the edit, then the cell, then full screen.
+Full screen has a second setting, **Just the table**, which drops the table tabs,
+the name row and the filter bar and leaves the grid with the window to itself —
+about 180px more of rows on a 720px screen. All that stays is two icons in the
+corner, one back to the tools and one out; the tools are only put away with
+`hidden` rather than unmounted, so a half-typed rename survives the trip. The
+choice is held for the visit, so full screen re-opens the way it was left.
 
 Those lines can carry **formatting, stored in the cell rather than beside it**
 (`lib/rich-text.ts`, drawn and written by `components/document/rich-text.tsx`):
