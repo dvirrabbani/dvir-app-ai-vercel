@@ -60,7 +60,10 @@ import {
   visibleRows,
 } from '@/lib/documents';
 import { discardTableImages } from '@/lib/image-folder';
+import { shortcutEdit } from '@/lib/rich-text';
 import { NoteCellBody, NoteEditor } from '@/components/document/cell-note';
+import { PictureViewer } from '@/components/document/picture-viewer';
+import { FormatToolbar, RichText, applyEdit } from '@/components/document/rich-text';
 import { imageFrom, keepPicture } from '@/components/document/picture-folder';
 
 /** Literal greys: `text-muted-foreground` resolves to nothing in this project. */
@@ -387,6 +390,7 @@ function GridCell({
   onKeyDown,
   onCommit,
   onPasteImage,
+  onViewImage,
   onToggleTick,
   label,
 }: {
@@ -402,10 +406,13 @@ function GridCell({
   onKeyDown: (event: React.KeyboardEvent) => void;
   onCommit: (value: string) => void;
   onPasteImage: (blob: Blob) => void;
+  onViewImage: (names: string[], at: number) => void;
   onToggleTick: () => void;
   label: string;
 }) {
   const box = useRef<HTMLDivElement>(null);
+  /** The box being typed in, so the formatting buttons have something to act on. */
+  const field = useRef<HTMLTextAreaElement>(null);
   const type = column.type;
   const value = cellValue(row, column.id);
   const editing = draft !== null;
@@ -431,19 +438,42 @@ function GridCell({
     return (
       <td className={`border-b border-r p-0 ${LINE}`}>
         {type === 'text' ? (
-          // Text is written in a box that grows, not on a line: a cell can hold
-          // a paragraph, and the whole of it should be visible while it is
-          // being written rather than scrolling past a slot one line tall.
-          <textarea
-            {...shared}
-            rows={1}
-            ref={growToFit}
-            onChange={(event) => {
-              grow(event.currentTarget);
-              onDraft(event.target.value);
-            }}
-            className={`block w-full resize-none overflow-hidden whitespace-pre-wrap break-words bg-white px-2 py-1.5 text-sm leading-snug outline-none ring-2 ring-inset ring-[#FF4D8E] dark:bg-[#26262A] ${SOLID}`}
-          />
+          // The ring and the background are on the wrapper rather than the box
+          // itself, so the formatting buttons sit inside the cell being written
+          // in rather than looking like something floating over the next row.
+          <div className={`bg-white ring-2 ring-inset ring-[#FF4D8E] dark:bg-[#26262A]`}>
+            {/* Text is written in a box that grows, not on a line: a cell can
+                hold a paragraph, and the whole of it should be visible while it
+                is being written rather than scrolling past a slot one line
+                tall. */}
+            <textarea
+              {...shared}
+              rows={1}
+              ref={(node) => {
+                field.current = node;
+                growToFit(node);
+              }}
+              onChange={(event) => {
+                grow(event.currentTarget);
+                onDraft(event.target.value);
+              }}
+              className={`block w-full resize-none overflow-hidden whitespace-pre-wrap break-words bg-transparent px-2 py-1.5 text-sm leading-snug outline-none ${SOLID}`}
+            />
+
+            {/* Under the writing rather than over it: a cell is as narrow as it
+                has been dragged to, and a row of buttons above would have to
+                cover the heading or the row before. They wrap when there is no
+                room, and every one of them has a keystroke as well. */}
+            <FormatToolbar
+              field={field}
+              max={CELL_MAX_LENGTH}
+              onChange={(next) => {
+                if (field.current) grow(field.current);
+                onDraft(next);
+              }}
+              className={`border-t px-1 py-0.5 ${LINE}`}
+            />
+          </div>
         ) : (
           <input
             {...shared}
@@ -512,7 +542,14 @@ function GridCell({
             className="h-4 w-4 cursor-pointer accent-[#D81B60] align-middle"
           />
         ) : type === 'note' ? (
-          <NoteCellBody row={row} column={column} />
+          <NoteCellBody row={row} column={column} onView={onViewImage} />
+        ) : type === 'text' ? (
+          // Drawn rather than printed out: `**a**` is a bold a and a line
+          // opening with `# ` is a title. Every marker is still a character
+          // somebody typed — see `lib/rich-text.ts` — so retyping this column
+          // as a number and back brings all of it round again. An empty cell
+          // comes back from here as a line of its own, and stays clickable.
+          <RichText value={value} />
         ) : (
           displayCell(value, type) || ' '
         )}
@@ -542,6 +579,8 @@ export function TableGrid({
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
   const [note, setNote] = useState<OpenNote | null>(null);
+  /** The cell's pictures being read over the page, and which of them is up. */
+  const [viewing, setViewing] = useState<{ names: string[]; at: number } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [resizing, setResizing] = useState<{ columnId: string; width: number } | null>(null);
 
@@ -736,6 +775,22 @@ export function TableGrid({
   const keysWhileEditing = useCallback(
     (event: React.KeyboardEvent, rowId: string, columnId: string, rowIndex: number) => {
       const input = event.currentTarget as HTMLInputElement | HTMLTextAreaElement;
+
+      /* Ctrl+B and the rest, which only mean anything in a box that holds
+         lines: there is nothing in a date or a number to make bold, and
+         Ctrl+B over a number column should stay the browser's own. */
+      if (input instanceof HTMLTextAreaElement) {
+        const shortcut = shortcutEdit(event);
+
+        if (shortcut) {
+          event.preventDefault();
+          applyEdit(input, shortcut, CELL_MAX_LENGTH, (next) => {
+            grow(input);
+            setDraft(next);
+          });
+          return;
+        }
+      }
 
       if (event.key === 'Escape') {
         event.preventDefault();
@@ -965,6 +1020,7 @@ export function TableGrid({
                         setCursor({ rowId: row.id, columnId: column.id });
                       }}
                       onPasteImage={(blob) => void pasteImage(row, column.id, blob)}
+                      onViewImage={(names, at) => setViewing({ names, at })}
                       onToggleTick={() => toggleTick(table.id, row.id, column.id)}
                       onBeginEdit={(initial, rect) => beginEdit(row.id, column.id, initial, rect)}
                       onDraft={setDraft}
@@ -1016,7 +1072,20 @@ export function TableGrid({
           row={openNote.row}
           column={openNote.column}
           anchor={openNote.anchor}
+          onView={(names, at) => setViewing({ names, at })}
           onClose={() => setNote(null)}
+        />
+      )}
+
+      {/* Over everything, including the page's own full screen. Keyed by the
+          picture it was opened on, so opening a second one starts it afresh
+          rather than leaving it where the last one was left. */}
+      {viewing && (
+        <PictureViewer
+          key={viewing.names[viewing.at]}
+          names={viewing.names}
+          start={viewing.at}
+          onClose={() => setViewing(null)}
         />
       )}
 
@@ -1035,7 +1104,13 @@ export function TableGrid({
         cell, <strong className="font-medium">Tab</strong> goes across, arrows move,{' '}
         <strong className="font-medium">Esc</strong> puts back what was there. Drag the line between two
         headings to resize a column. A <strong className="font-medium">Text &amp; pictures</strong> column
-        opens a panel instead, and takes a snip pasted straight onto the cell.
+        opens a panel instead, and takes a snip pasted straight onto the cell; click a picture in one to read
+        it over the whole page, where it can be shown at full size. Text cells take formatting:{' '}
+        <strong className="font-medium">Ctrl+B</strong> for bold, <strong className="font-medium">Ctrl+I</strong>{' '}
+        for italic, <strong className="font-medium">Ctrl+Alt+1</strong> for a title, or the buttons under the
+        cell — which write <code className="font-mono">**bold**</code> and{' '}
+        <code className="font-mono"># Title</code> into the cell itself, so nothing is lost by retyping the
+        column.
         {hidden > 0 && ` A filter is hiding ${hidden} row${hidden === 1 ? '' : 's'}, and a new row starts empty, so it may be hidden the moment it is added.`}
       </p>
     </div>
