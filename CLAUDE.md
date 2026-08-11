@@ -41,6 +41,7 @@ Each feature is a matched pair of files:
 | `milestones.ts` | `use-milestones.ts` | `app/milestones` |
 | `milestone-cycles.ts` | `use-milestone-cycles.ts` | `app/milestones` |
 | `goals.ts` | `use-goals.ts` | `app/milestones` |
+| `documents.ts` | `use-documents.ts` | `app/document` |
 | `contact.ts` | `use-contact.ts` | `app/contact` |
 | `backup.ts` | `use-backup.ts` | `app/backup` |
 
@@ -146,6 +147,88 @@ of `DAY_PART_DEFAULT_TIME` — an empty one would inherit its group's and could 
 in a different part — and goes into the group `groupForPart` picks. Re-timing a
 task in one part's editor is how it moves to another.
 
+`documents.ts` is the odd feature out in shape: a table is columns, rows and the
+*view* — the filters, the sort and whether the headings are pinned — kept
+together in one record, because a way of
+looking at a table is part of the table and setting it up again every visit is
+the thing that makes a filter not worth having. Cells are stored as the string
+that was typed and the column's type only says how that string is *read*
+(compared as a number, ordered as a day, matched as text), so retyping a column
+can never lose what somebody wrote. Deleting a column takes its cells, its
+filters and its sort with it (`deleteColumn`, and `toFilter` on the way back in),
+since a filter on a column that is gone hides rows for a reason nothing on screen
+could explain. `visibleRows` is the only thing the grid renders from; the stored
+row order is never rearranged by a sort.
+
+**`check`** ("Tick box") is the column type that proves the rule about types
+only changing how a string is *read*: a tick writes `TICKED` (`'yes'`) and an
+untick empties the cell, but `isTicked` accepts any of a small set of spellings
+(`yes`, `y`, `true`, `1`, `x`, `✓`, `done`, `ok`), so a column somebody has been
+filling in by hand becomes a column of ticked boxes the moment it is retyped —
+and retyping it back gives every word return. It offers two filter operators and
+no more, and it is the one type `compareCells` treats an empty cell as an answer
+rather than a blank, since "not ticked" is half the column rather than a gap in
+it. There is no editor: Enter, Space and a click all just turn the box over.
+
+A column type, **`note`** ("Text & pictures"), holds writing and
+screenshots in the same cell. The file names live on the row beside the cells
+(`Row.images`, column id → names) rather than inside the cell string, so
+filtering and sorting still work on the text and a picture is an extra layer
+rather than a special value. The bytes go to the **same folder the blog's pasted
+screenshots go to** — `lib/image-folder.ts`, one folder per browser — because a
+dozen screenshots in localStorage would fill the quota and take the tables down
+with it. `lib/use-folder-image.ts` is the React-side counterpart to the blog's
+`use-local-images.ts`: a name in, a cached blob URL out, shared by every cell
+showing that file. Deleting a cell's picture, a row, a column or a table sweeps
+the files through `discardTableImages`, which only removes what *nothing* —
+no other cell and no post — still points at; that is what makes a duplicated
+row, which points at the very same files, safe. `components/document/picture-folder.tsx`
+holds the folder controls (its own copy: the blog's live inside the post
+editor's toolbar) and `keepPicture`, which is where every refusal is worded.
+
+`components/document/table-grid.tsx` is the surface, written to be used the way a
+spreadsheet is: click to put the cursor on a cell, type to replace it, Enter down
+(adding a row at the bottom), Tab across and round, arrows to move, Escape to put
+back. There is no edit button anywhere on purpose.
+
+`app/document` is the one page that is **not** in the site's `max-w-6xl` reading
+column: the table takes the window's full width (the heading and the footnote
+keep a measure of their own), because a table with eight columns is the widest
+thing on this site. Two things follow from that and are easy to undo by accident.
+The `<table>` states an explicit width — the sum of what its columns declare —
+since `table-fixed` only honours a column's width if the table has one of its
+own; left to size itself the browser measures the content instead and a column
+dragged to 130px comes out at whatever its heading needs. And the empty column at
+the right-hand end declares *no* width, so it soaks up all the slack on a wide
+screen instead of the surplus being spread across the data columns. The live
+width during a drag is held by the grid rather than the header, because that
+total has to move as the handle does.
+
+The headings stick to the top of the scroll box, which is `stickyHeader` on the
+table and on by default; the row-number column is always stuck to the left and
+is not part of the option. A sticky header needs the line under it drawn as an
+inset `box-shadow` rather than a border: `border-collapse` gives a cell's borders
+to the *table* to paint, and the table does not travel with the stuck row, so the
+border vanishes at exactly the moment it is needed.
+
+A **text cell holds lines, not a line**. It is edited in a `<textarea>` that is
+resized to its own `scrollHeight` on every keystroke (`grow`), so the row grows
+with what is written and nothing scrolls inside a slot; the cell renders it back
+with `whitespace-pre-wrap`, exactly as a cell in a post's table does. Plain Enter
+still commits and goes down — that is what makes a long column quick — and a
+break inside the cell is Enter with **any** of Alt, Shift, Ctrl or Cmd held. All
+four insert the break by hand rather than letting the textarea's own default
+action do it for Shift, so which modifier a person reaches for cannot change what
+happens. Number and date cells stay single-line inputs and keep their ellipsis. A `note` cell is the one thing
+edited in a panel rather than in place — a screenshot and a paragraph do not fit
+on one line of a grid — opened against the cell with `position: fixed` so the
+scroll box cannot clip it, committing its writing on unmount because a click
+away closes it from a `mousedown` before any blur could fire. A snip pasted onto
+the cell itself skips the panel entirely. The page's full screen is a
+`fixed inset-0` overlay rather than the browser's own Fullscreen API — the same
+workspace, given the whole window, without hiding the browser's chrome as well.
+Escape unwinds one layer at a time: the edit, then the cell, then full screen.
+
 Three of them carry dates, which is the other easy mix-up. A **dated milestone**
 (`milestones.ts`, `range`) runs *between* two days and shows the work done against
 the time spent. A **cycle** (`milestone-cycles.ts`) repeats between two days. A
@@ -187,6 +270,15 @@ Feature pages are `'use client'` (they read localStorage), so `export const meta
 ## Bidirectional text
 
 The site is written to hold Hebrew and English in the same page. `applyAutoDirection` stamps `dir="auto"` on every block element of saved post HTML, and user-entered strings elsewhere (event titles, milestone names, contact messages) are rendered with `dir="auto"`. `dir` is on the global attribute allow-list in the sanitizer for this reason. Any new user-authored text field should carry `dir="auto"`.
+
+A table cell reads in its own direction, on both sides of the edit: the display
+element and the field it is typed in both carry `dir="auto"`, so a Hebrew line
+and an English one can sit in the same column and each hug its own edge. The
+table itself never turns round — the columns stay in the order they were made and
+the row numbers stay on the left. One trap worth knowing: `dir="auto"` reads the
+first strong character *outside* any descendant that sets its own `dir`, so the
+text inside `NoteCellBody` deliberately has none. Giving it one would hide it
+from the wrapper and leave the pictures above it facing the other way.
 
 ## Styling
 
