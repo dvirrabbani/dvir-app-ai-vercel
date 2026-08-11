@@ -56,6 +56,27 @@ to one JSON file and read back on another device — the only way two devices sh
 anything, there being no server. Adding a feature means adding it to
 `BACKUP_FEATURES` too, or it silently stops travelling.
 
+That file can also be fetched straight out of Google Drive
+(`lib/google-drive.ts`), which is **not** a backend appearing after all: Google's
+own Picker opens over the page, and the bytes come from `googleapis.com` to that
+tab. This site's origin never sees the file or the token. The scope is
+`drive.file` — the files somebody picks by hand and nothing else — which is why it
+goes through the Picker rather than listing a folder, a listing needing
+`drive.readonly` over the whole Drive. Two things follow. The token is kept in a
+module variable and never in storage, so it cannot outlive the tab sitting next
+to the data it fetches. And both Google scripts are fetched when the button is
+hovered or focused (`prepareDrivePicker`), not on load and not on the click: a
+visitor who never goes near it never contacts Google, but the permission window
+has to open inside the gesture that asked for it or the browser takes it for a
+pop-up. It needs both `NEXT_PUBLIC_GOOGLE_CLIENT_ID` and
+`NEXT_PUBLIC_GOOGLE_PICKER_KEY` (see `.env.example` for the Cloud Console side),
+and without them the button is disabled with the reason beside it rather than
+hidden — a control that is simply absent tells the one person who could fix it
+nothing. Loading from Drive
+lands in the same preview-then-confirm flow as a local file — `ingest` in
+`app/backup/page.tsx` is the one door in — and nothing is written to Drive: the
+copy going out is still a download.
+
 Two of those are about repeating work and are easy to mix up. `routines.ts` is the
 routines page's open-ended habits — a cadence, no end date, nothing to finish.
 `milestone-cycles.ts` is the milestones page's bounded version — a start and an end
