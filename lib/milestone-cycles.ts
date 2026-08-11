@@ -68,7 +68,8 @@ export const CYCLES_EVENT = 'milestone-cycles-changed';
 
 export const TITLE_MAX_LENGTH = 80;
 export const DESCRIPTION_MAX_LENGTH = 2_000;
-export const TASK_TITLE_MAX_LENGTH = 120;
+/** The same room a plain milestone's task gets, for the same reason. */
+export const TASK_TITLE_MAX_LENGTH = 240;
 export const MAX_TASKS_PER_CYCLE = 50;
 /** The same ceiling the calendar's routines put on a task's daily target. */
 export const MAX_TIMES_PER_DAY = 20;
