@@ -9,12 +9,32 @@
  * mostly ruined by a 3xl container. It is the *page* that goes full screen
  * rather than the browser — the browser's own full screen hides the tabs and
  * the clock too, which is more than anybody asked for while filling in a table.
+ *
+ * Full screen itself comes two ways, because the room it wins can be spent
+ * twice. Ordinarily it keeps the tables, the name and the tools above the grid.
+ * Asked for *just the table*, it drops all of that and gives the grid every row
+ * the window will hold — the tools are for setting a table up, and once it is
+ * set up they are three inches of screen spent on buttons nobody is pressing.
+ * Two icons stay in the corner so the way back is never a guess, and the
+ * choice is held for the visit — full screen re-opens the way it was left.
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { motion } from 'framer-motion';
-import { Filter as FilterIcon, Maximize2, Minimize2, Pin, PinOff, Plus, Table2, Trash2, X } from 'lucide-react';
+import {
+  Filter as FilterIcon,
+  Maximize2,
+  Minimize2,
+  PanelTopClose,
+  PanelTopOpen,
+  Pin,
+  PinOff,
+  Plus,
+  Table2,
+  Trash2,
+  X,
+} from 'lucide-react';
 import { FilterBar } from '@/components/document/filter-bar';
 import { PictureFolderButton } from '@/components/document/picture-folder';
 import { TableGrid } from '@/components/document/table-grid';
@@ -80,7 +100,12 @@ export default function DocumentPage() {
   const [wantedId, setWantedId] = useState<string | null>(null);
   const [showFilters, setShowFilters] = useState(false);
   const [fullscreen, setFullscreen] = useState(false);
+  /** In full screen, whether the grid is on its own with nothing above it. */
+  const [justTable, setJustTable] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+
+  /** Whether the tables, the name and the tools are on the screen at all. */
+  const tools = !(fullscreen && justTable);
 
   // The table asked for, or the first one — a table can be deleted in another
   // tab, and landing on nothing at all would be a blank page with no way out.
@@ -180,7 +205,11 @@ export default function DocumentPage() {
 
   const workspace = table && (
     <div className={`flex flex-col gap-3 ${fullscreen ? 'min-h-0 flex-1' : ''}`}>
-      <div className="flex flex-wrap items-center gap-1.5">
+      {/* Put away rather than taken away: `hidden` keeps a half-typed rename in
+          the name field, so a trip through "just the table" and back does not
+          quietly throw it away. Nothing in here is reachable while it is off —
+          `display: none` cannot be clicked, tabbed to or read out. */}
+      <div className={`flex flex-wrap items-center gap-1.5 ${tools ? '' : 'hidden'}`}>
         <TableName table={table} />
 
         <span
@@ -228,6 +257,23 @@ export default function DocumentPage() {
           {fullscreen ? 'Exit full screen' : 'Full screen'}
         </button>
 
+        {/* Only in full screen: on the page there is nothing above the table
+            worth hiding, and a header the site's own navbar sits over. */}
+        {fullscreen && (
+          <button
+            type="button"
+            onClick={() => {
+              setJustTable(true);
+              setConfirmDelete(false);
+            }}
+            title="Give the grid the window on its own — nothing above it but the way back"
+            className={`${TOOL_BUTTON} ${MUTED}`}
+          >
+            <PanelTopClose className="h-3.5 w-3.5" />
+            Just the table
+          </button>
+        )}
+
         {confirmDelete ? (
           <span className="flex shrink-0 items-center gap-1.5">
             <button
@@ -260,7 +306,35 @@ export default function DocumentPage() {
         )}
       </div>
 
-      {(showFilters || table.filters.length > 0) && <FilterBar table={table} />}
+      {tools && (showFilters || table.filters.length > 0) && <FilterBar table={table} />}
+
+      {/* The whole of the chrome, in full screen with the tools put away: the
+          way back to them, and the way out. Icons on a line of their own rather
+          than floating over the grid — a pill in the corner would sit on the
+          last column's heading, which is a menu and a drag handle. */}
+      {!tools && (
+        <div className="flex shrink-0 items-center justify-end gap-1.5">
+          <button
+            type="button"
+            onClick={() => setJustTable(false)}
+            title="Bring back the tables, the name and the tools"
+            className={`${TOOL_BUTTON} ${MUTED}`}
+          >
+            <PanelTopOpen className="h-3.5 w-3.5" />
+            <span className="sr-only">Show the tools</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setFullscreen(false)}
+            title="Back to the page (Esc)"
+            className={`${TOOL_BUTTON} ${MUTED}`}
+          >
+            <Minimize2 className="h-3.5 w-3.5" />
+            <span className="sr-only">Exit full screen</span>
+          </button>
+        </div>
+      )}
 
       <TableGrid table={table} fill={fullscreen} onFilterColumn={() => setShowFilters(true)} />
     </div>
@@ -270,8 +344,12 @@ export default function DocumentPage() {
 
   if (fullscreen && table) {
     return (
-      <div className="fixed inset-0 z-[60] flex flex-col gap-3 overflow-auto bg-[#FAFAFA] p-3 dark:bg-[#1C1C1E] md:p-5">
-        {tabs}
+      <div
+        className={`fixed inset-0 z-[60] flex flex-col gap-3 overflow-auto bg-[#FAFAFA] dark:bg-[#1C1C1E] ${
+          tools ? 'p-3 md:p-5' : 'p-2 md:p-3'
+        }`}
+      >
+        {tools && tabs}
         {workspace}
       </div>
     );
