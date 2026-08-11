@@ -57,7 +57,13 @@ export const TITLE_MAX_LENGTH = 80;
 export const DESCRIPTION_MAX_LENGTH = 2_000;
 export const UNIT_MAX_LENGTH = 16;
 export const MAX_TARGET = 1_000_000;
-export const TASK_TITLE_MAX_LENGTH = 120;
+/**
+ * Room for a sentence rather than a label. A task is often the only place the
+ * thing to be done is written down at all, so it has to hold the whole of it —
+ * the rows it is read in wrap instead of cutting it off. Raising this can never
+ * lose anything: `normalise` only ever slices *down* to it.
+ */
+export const TASK_TITLE_MAX_LENGTH = 240;
 export const MAX_TASKS_PER_MILESTONE = 100;
 
 function isMilestone(value: unknown): value is Milestone {

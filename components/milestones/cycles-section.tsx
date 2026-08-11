@@ -621,7 +621,7 @@ function DayRow({
           const repeats = task.target > 1;
 
           return (
-            <li key={task.id} className="flex items-center gap-2">
+            <li key={task.id} className="flex items-start gap-2">
               <button
                 type="button"
                 onClick={() => toggleCycleDone(item.id, task.id, dayKey)}
@@ -651,7 +651,7 @@ function DayRow({
 
               <span
                 dir="auto"
-                className={`min-w-0 flex-1 truncate text-sm ${
+                className={`min-w-0 flex-1 break-words text-sm leading-5 ${
                   ticked ? 'text-muted-foreground line-through' : 'text-foreground'
                 }`}
               >
@@ -835,6 +835,10 @@ function TaskRow({ item, task, choices }: { item: MilestoneCycle; task: CycleTas
           />
         ) : (
           <>
+            {/* Everything beside it in this row is `shrink-0`, so on a narrow
+                screen the name would be left with whatever was over — a basis
+                wide enough to be a name takes the whole line instead, the row
+                wrapping the controls underneath it. */}
             <button
               type="button"
               onClick={() => {
@@ -843,7 +847,7 @@ function TaskRow({ item, task, choices }: { item: MilestoneCycle; task: CycleTas
               }}
               dir="auto"
               title={`Edit ${task.title}`}
-              className="min-w-0 flex-1 truncate text-start text-sm font-medium text-foreground transition-colors hover:text-[#FF4D8E]"
+              className="min-w-0 grow basis-48 break-words text-start text-sm font-medium text-foreground transition-colors hover:text-[#FF4D8E]"
             >
               {task.title}
             </button>

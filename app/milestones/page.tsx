@@ -852,8 +852,10 @@ function TaskRow({
     );
   }
 
+  // Aligned to the top rather than the middle: a name long enough to take two
+  // lines would otherwise leave the box floating halfway down them.
   return (
-    <li className="flex items-center gap-2">
+    <li className="flex items-start gap-2">
       <button
         type="button"
         onClick={() => toggleMilestoneTask(milestone.id, task.id)}
@@ -875,7 +877,7 @@ function TaskRow({
           onClick={() => setEditing(true)}
           dir="auto"
           title={`Edit ${task.title}`}
-          className={`min-w-0 flex-1 truncate text-start text-sm transition-colors hover:text-[#FF4D8E] ${
+          className={`min-w-0 flex-1 break-words text-start text-sm leading-5 transition-colors hover:text-[#FF4D8E] ${
             task.done ? 'text-muted-foreground line-through' : 'text-foreground'
           }`}
         >
@@ -884,7 +886,7 @@ function TaskRow({
       ) : (
         <span
           dir="auto"
-          className={`min-w-0 flex-1 truncate text-sm ${
+          className={`min-w-0 flex-1 break-words text-sm leading-5 ${
             task.done ? 'text-muted-foreground line-through' : 'text-foreground'
           }`}
         >
