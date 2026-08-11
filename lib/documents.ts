@@ -428,23 +428,64 @@ function editTable(id: string, change: (table: TableDoc) => TableDoc | null): bo
   return true;
 }
 
-/** A new table with somewhere to start typing: three columns and three rows. */
-export function addTable(name = 'Untitled table'): TableDoc | null {
+/** The three a table starts with when nobody asks for more. A name, a number
+ *  and a date is the shape of most things worth keeping a table of; anything
+ *  past them is plain text, which is the type that loses nothing. */
+const STARTER_COLUMNS: Array<{ name: string; type: ColumnType; width: number }> = [
+  { name: 'Name', type: 'text', width: DEFAULT_COLUMN_WIDTH },
+  { name: 'Amount', type: 'number', width: 130 },
+  { name: 'Date', type: 'date', width: 150 },
+];
+
+/** A count somebody typed, made into one a table can actually have. Anything
+ *  that is not a number at all falls back rather than refusing: an empty box
+ *  means "the usual", not "no table". */
+function countWithin(value: unknown, most: number, fallback: number): number {
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 1) return fallback;
+  return Math.min(most, Math.max(1, Math.round(value)));
+}
+
+export const DEFAULT_TABLE_ROWS = 3;
+export const DEFAULT_TABLE_COLUMNS = 3;
+
+/**
+ * A new table with somewhere to start typing: three columns and three rows
+ * unless a size is asked for, in which case as many of each as fit within
+ * `MAX_ROWS` and `MAX_COLUMNS`.
+ *
+ * Asking for the size up front is not the only way to get there — a column is
+ * added from the + at the end of the headings and a row from the bottom of the
+ * grid — but a table somebody already knows the shape of is a dozen clicks
+ * otherwise, and the shape is the first thing they know.
+ */
+export function addTable(
+  name = 'Untitled table',
+  size: { rows?: number; columns?: number } = {}
+): TableDoc | null {
   const tables = getTables();
   if (tables.length >= MAX_TABLES) return null;
 
   const now = new Date().toISOString();
-  const columns: Column[] = [
-    { id: makeId('col'), name: 'Name', type: 'text', width: DEFAULT_COLUMN_WIDTH, options: [] },
-    { id: makeId('col'), name: 'Amount', type: 'number', width: 130, options: [] },
-    { id: makeId('col'), name: 'Date', type: 'date', width: 150, options: [] },
-  ];
+  const wantedColumns = countWithin(size.columns, MAX_COLUMNS, DEFAULT_TABLE_COLUMNS);
+  const wantedRows = countWithin(size.rows, MAX_ROWS, DEFAULT_TABLE_ROWS);
+
+  const columns: Column[] = Array.from({ length: wantedColumns }, (_, index) => {
+    const starter = STARTER_COLUMNS[index];
+
+    return {
+      id: makeId('col'),
+      name: starter?.name ?? `Column ${index + 1}`,
+      type: starter?.type ?? 'text',
+      width: starter?.width ?? DEFAULT_COLUMN_WIDTH,
+      options: [],
+    };
+  });
 
   const table: TableDoc = {
     id: makeId('tbl'),
     name: name.trim().slice(0, TABLE_NAME_MAX_LENGTH) || 'Untitled table',
     columns,
-    rows: Array.from({ length: 3 }, () => ({ id: makeId('row'), cells: {}, images: {} })),
+    rows: Array.from({ length: wantedRows }, () => ({ id: makeId('row'), cells: {}, images: {} })),
     filters: [],
     sort: null,
     stickyHeader: true,
@@ -476,9 +517,15 @@ export function deleteTable(id: string) {
 /*  Columns                                                                   */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * A column at the right-hand end, or at `at` when one is being put between two
+ * that are already there. The cells come with it by simply not existing — a
+ * column never typed into reads as empty in every row — so an inserted column
+ * costs nothing per row and none of the rows are rewritten.
+ */
 export function addColumn(
   tableId: string,
-  input: { name?: string; type?: ColumnType; options?: string[] } = {}
+  input: { name?: string; type?: ColumnType; options?: string[]; at?: number } = {}
 ): boolean {
   return editTable(tableId, (table) => {
     if (table.columns.length >= MAX_COLUMNS) return null;
@@ -491,7 +538,11 @@ export function addColumn(
       options: toOptions(input.options),
     };
 
-    return { ...table, columns: [...table.columns, column] };
+    const columns = [...table.columns];
+    const at = input.at;
+    columns.splice(at === undefined ? columns.length : Math.max(0, Math.min(at, columns.length)), 0, column);
+
+    return { ...table, columns };
   });
 }
 
@@ -733,10 +784,19 @@ export function moveOption(tableId: string, columnId: string, name: string, delt
 /* -------------------------------------------------------------------------- */
 
 /**
- * A blank row at the bottom, or under `afterRowId` when one is being inserted
+ * A blank row at the bottom, or beside `nearRowId` when one is being inserted
  * mid-table. Returns the new row's id so the grid can put the cursor in it.
+ *
+ * "Beside" is the *stored* order, which is the only order there is — a sort is
+ * a way of looking at the rows and never rearranges them (see `visibleRows`).
+ * So a row put under the third row is the fourth row, whatever the screen is
+ * showing at the time.
  */
-export function addRow(tableId: string, afterRowId?: string): string | null {
+export function addRow(
+  tableId: string,
+  nearRowId?: string,
+  where: 'above' | 'below' = 'below'
+): string | null {
   const table = getTable(tableId);
   if (!table || table.rows.length >= MAX_ROWS) return null;
 
@@ -745,11 +805,11 @@ export function addRow(tableId: string, afterRowId?: string): string | null {
   const done = editTable(tableId, (current) => {
     if (current.rows.length >= MAX_ROWS) return null;
 
-    const at = afterRowId ? current.rows.findIndex((each) => each.id === afterRowId) : -1;
+    const at = nearRowId ? current.rows.findIndex((each) => each.id === nearRowId) : -1;
     if (at === -1) return { ...current, rows: [...current.rows, row] };
 
     const rows = [...current.rows];
-    rows.splice(at + 1, 0, row);
+    rows.splice(where === 'above' ? at : at + 1, 0, row);
     return { ...current, rows };
   });
 
