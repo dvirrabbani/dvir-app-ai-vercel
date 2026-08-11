@@ -15,6 +15,11 @@ npx tsc --noEmit     # typecheck — the only way to catch type errors, `next de
 
 There is no test suite and no test runner installed. "Verify" here means `npx tsc --noEmit`, `bun run lint`, `bun run build`, and exercising the page in a browser.
 
+The one exception is `bun run scripts/rich-text-roundtrip.ts` — a standalone
+check that a table cell's stored markers and its editing surface stay exact
+inverses. It needs no runner, and the invariant it guards is invisible until a
+cell has quietly grown a dozen underscores. See the rich-text section below.
+
 `.claude/launch.json` defines two preview configs: `dev` *attaches* to an already-running server on :3000 (it has no command, so start `bun run dev` yourself first), and `prod` runs `next start -p 3100`.
 
 `.env.local` (from `.env.example`) holds `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`. Auth is optional for most pages — only `/profile` requires a session; the sign-in button in the navbar is the only other consumer.
@@ -248,15 +253,19 @@ inset `box-shadow` rather than a border: `border-collapse` gives a cell's border
 to the *table* to paint, and the table does not travel with the stuck row, so the
 border vanishes at exactly the moment it is needed.
 
-A **text cell holds lines, not a line**. It is edited in a `<textarea>` that is
-resized to its own `scrollHeight` on every keystroke (`grow`), so the row grows
-with what is written and nothing scrolls inside a slot; the cell renders it back
-with `whitespace-pre-wrap`, exactly as a cell in a post's table does. Plain Enter
+A **text cell holds lines, not a line**. It is written in a `contentEditable`
+(`RichCellEditor`) that grows with what is in it, so the row grows too and
+nothing scrolls inside a slot; the cell renders it back with
+`whitespace-pre-wrap`, exactly as a cell in a post's table does. Plain Enter
 still commits and goes down — that is what makes a long column quick — and a
 break inside the cell is Enter with **any** of Alt, Shift, Ctrl or Cmd held. All
-four insert the break by hand rather than letting the textarea's own default
+four go through `insertBreak` rather than letting the browser's own default
 action do it for Shift, so which modifier a person reaches for cannot change what
-happens. Number and date cells stay single-line inputs and keep their ellipsis. A `note` cell is the one thing
+happens — and a line begun at the end of a title is a plain line, as it is
+everywhere. Number and date cells stay single-line `<input>`s and keep their
+ellipsis; they are the reason `onKeyDown` is handed a `read()` rather than
+reading `event.currentTarget.value`, since the surface a text cell is written in
+has no `value` to read. A `note` cell is the one thing
 edited in a panel rather than in place — a screenshot and a paragraph do not fit
 on one line of a grid — opened against the cell with `position: fixed` so the
 scroll box cannot clip it, committing its writing on unmount because a click
@@ -266,23 +275,62 @@ the cell itself skips the panel entirely. The page's full screen is a
 workspace, given the whole window, without hiding the browser's chrome as well.
 Escape unwinds one layer at a time: the edit, then the cell, then full screen.
 
-Those lines can carry **formatting, written into the cell rather than beside it**
-(`lib/rich-text.ts`, drawn by `components/document/rich-text.tsx`): `**bold**`,
-`*italic*`, `~~struck~~`, `` `code` ``, and a line opening `# ` or `## ` as a
-title. It is markers rather than a second field for one reason — the rule that
-a cell stores the string that was typed and the type only says how it is *read*.
-A bold column retyped as a number keeps every asterisk and gives all of it back
-when it is retyped again. Marks are put on by Ctrl+B / Ctrl+I / Ctrl+E /
-Ctrl+Shift+X, titles by Ctrl+Alt+1 and Ctrl+Alt+2 (Ctrl+1 belongs to the browser
-and cannot be had), and by the `FormatToolbar` under the cell being written in —
-whose buttons hold the field's focus down through `mousedown`, since letting it
-go would commit and close the cell before the click ever landed. An opener has
-to hug the word it opens and a closer the word it closes, so `2 * 3 * 4` is
-arithmetic; an unclosed marker stays the character it is. Filtering and sorting a
-`text` or `note` column go through `plainRichText` (`readable` in `documents.ts`),
-so "is" asks about the words on the screen and a bolded *Zebra* sorts under Z
-rather than in front of the table under an asterisk. Nothing `RichText` draws
-sets a `dir` of its own, for the reason given above.
+Those lines can carry **formatting, stored in the cell rather than beside it**
+(`lib/rich-text.ts`, drawn and written by `components/document/rich-text.tsx`):
+`__bold__`, `*italic*`, `~~struck~~`, `==marked==` (the highlighter),
+`` `code` ``, and a line opening `# ` or `## ` as a title. It is markers rather
+than a second field for one reason — the rule that a cell stores the string that
+was typed and the type only says how it is *read*. A bold column retyped as a
+number keeps every underscore and gives all of it back when it is retyped again.
+
+**Nobody ever sees a marker.** A cell is written in a `contentEditable` showing
+the bold word bold, so the markers are only a storage format — you select what
+you mean and press a button, as in any other writing box. That makes
+`lib/rich-text.ts` a pair of translations that have to be exact inverses:
+`readRichText` into something to draw, `writeRichText` back into the string. If
+they ever drift, a cell gains markers every time it is opened and closed — not
+loudly, just `____word____` a fortnight later. `scripts/rich-text-roundtrip.ts`
+is the check for exactly that (write → read → write over random span
+structures, plus stability on hand-typed markers and a timing bound on hostile
+input); run it after any change to either.
+
+Two consequences to know before touching the format:
+
+- **Bold is `__`, not `**`.** `*` and `**` share a character, so a bold word with
+  an italic one hard against it puts three asterisks in a row and `**a***b*`
+  cannot be told apart from `**a*` followed by `**b*` — both readings are real
+  and nothing decides between them. Giving bold a character of its own means the
+  writer can never produce the run. `**` is still *read* as bold, so every cell
+  written before this still says what it said.
+- **The look is stated twice.** `Piece`/`blockClass` draw the finished cell in
+  Tailwind classes; `.rich-cell` in `app/globals.css` dresses the one being
+  written, because half of what is in that one is put there by the browser's own
+  commands and arrives as a bare `<b>` or `<mark>` with no class on it. The
+  values have to match — the whole promise is that a cell looks the same being
+  written as it does written.
+
+Marks are put on by Ctrl+B / Ctrl+I / Ctrl+E / Ctrl+Shift+X / Ctrl+Shift+H,
+titles by Ctrl+Alt+1 and Ctrl+Alt+2 (Ctrl+1 and plain Ctrl+H belong to the
+browser and cannot be had), and by the `FormatToolbar` under the cell being
+written in — whose buttons hold the surface's focus down through `mousedown`,
+since letting it go would commit and close the cell before the click ever
+landed, taking the selection with it. With nothing selected a mark lands on the
+word the caret is in: a surface with no markers on it has nowhere to show an
+empty pair. Bold, italic and strike are the browser's own commands and Ctrl+Z
+reaches them; the highlighter and code move nodes by hand and it does not, since
+`insertHTML` rewrites a `<mark>` into a `<span>` with the colours frozen into a
+`style` and a mark that is a colour stops matching the theme. Pasting puts in
+text and never the clipboard's HTML — what arrives from another page is
+arbitrary markup and the marks a cell can hold are the six on the toolbar.
+
+Reading the markers back, an opener has to hug the word it opens and a closer
+the word it closes, so `2 * 3 * 4` is arithmetic; an unclosed marker stays the
+character it is. Filtering and sorting a `text` or `note` column go through
+`plainRichText` (`readable` in `documents.ts`), so "is" asks about the words on
+the screen and a bolded *Zebra* sorts under Z rather than in front of the table
+under an underscore. Nothing `RichText` draws sets a `dir` of its own, for the
+reason given above; the surface itself carries `dir="auto"` so a Hebrew cell
+reads right-to-left while it is being written as well as after.
 
 Three of them carry dates, which is the other easy mix-up. A **dated milestone**
 (`milestones.ts`, `range`) runs *between* two days and shows the work done against
