@@ -15,6 +15,7 @@
  * read path is prepared to ask for it again.
  */
 
+import { allTableImageNames } from '@/lib/documents';
 import { getLocalPosts, isLocalImageName, localImageNamesIn } from '@/lib/local-posts';
 
 // TypeScript's DOM library types the handles but not the picker that hands them
@@ -294,27 +295,24 @@ export async function deleteImage(name: string): Promise<boolean> {
 }
 
 /**
- * Deletes the images a post has just stopped using. Call it after the new
- * version is saved, so the sweep below sees it.
- *
- * Two things keep this from taking something it should not. Only names the
- * previous version of *this* post carried are ever considered, so a file the
- * author dropped in the folder by hand is never a candidate; and each one is
- * then checked against every saved post, so an image used in two places
- * survives being cut from one of them.
+ * Every file anything in this browser is still pointing at — every saved post
+ * and every cell of every table. One folder holds the screenshots for both, and
+ * a file is only ever safe to delete once neither of them wants it.
  */
-export async function discardUnusedImages(previousHtml: string, nextHtml: string): Promise<string[]> {
-  const before = localImageNamesIn(previousHtml);
-  if (before.size === 0) return [];
+function stillUsedNames(): Set<string> {
+  const names = allTableImageNames();
+  for (const post of getLocalPosts()) {
+    for (const name of localImageNamesIn(post.contentHtml)) names.add(name);
+  }
 
-  const after = localImageNamesIn(nextHtml);
-  const dropped = [...before].filter((name) => !after.has(name));
+  return names;
+}
+
+/** Deletes each of `dropped` that nothing else refers to any more. */
+async function discardNames(dropped: readonly string[]): Promise<string[]> {
   if (dropped.length === 0) return [];
 
-  const stillUsed = new Set<string>();
-  for (const post of getLocalPosts()) {
-    for (const name of localImageNamesIn(post.contentHtml)) stillUsed.add(name);
-  }
+  const stillUsed = stillUsedNames();
 
   const removed: string[] = [];
   for (const name of dropped) {
@@ -323,4 +321,33 @@ export async function discardUnusedImages(previousHtml: string, nextHtml: string
   }
 
   return removed;
+}
+
+/**
+ * Deletes the images a post has just stopped using. Call it after the new
+ * version is saved, so the sweep below sees it.
+ *
+ * Two things keep this from taking something it should not. Only names the
+ * previous version of *this* post carried are ever considered, so a file the
+ * author dropped in the folder by hand is never a candidate; and each one is
+ * then checked against everything still using the folder, so an image used in
+ * two places survives being cut from one of them.
+ */
+export async function discardUnusedImages(previousHtml: string, nextHtml: string): Promise<string[]> {
+  const before = localImageNamesIn(previousHtml);
+  if (before.size === 0) return [];
+
+  const after = localImageNamesIn(nextHtml);
+  return discardNames([...before].filter((name) => !after.has(name)));
+}
+
+/**
+ * The same sweep for a table: the pictures a cell, a row, a column or a whole
+ * table was holding just before it went. Call it *after* the change is written,
+ * so a name still wanted by what remains is seen to be wanted — and so the
+ * duplicate of a row, which points at the very same files, keeps its pictures
+ * when the original is deleted.
+ */
+export async function discardTableImages(names: readonly string[]): Promise<string[]> {
+  return discardNames(names);
 }

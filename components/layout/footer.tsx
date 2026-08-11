@@ -8,6 +8,7 @@ const footerLinks = [
   { href: '/calendar', label: 'Calendar' },
   { href: '/routines', label: 'Routines' },
   { href: '#insights', label: 'AI & Dev' },
+  { href: '/document', label: 'Documents' },
   { href: '/backup', label: 'Data' },
   { href: '/contact', label: 'Contact' },
 ];

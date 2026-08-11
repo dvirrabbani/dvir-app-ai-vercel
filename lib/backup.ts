@@ -2,6 +2,7 @@ import { CALENDAR_EVENT, CALENDAR_KEY, toDateKey } from '@/lib/calendar';
 import { CATEGORIES_EVENT, CATEGORIES_KEY } from '@/lib/categories';
 import { CONTACT_EVENT, CONTACT_KEY } from '@/lib/contact';
 import { DIET_EVENT, DIET_KEY } from '@/lib/diet';
+import { DOCUMENTS_EVENT, DOCUMENTS_KEY } from '@/lib/documents';
 import { SHOWS_EVENT, SHOWS_KEY } from '@/lib/entertainment';
 import { GOALS_EVENT, GOALS_KEY } from '@/lib/goals';
 import { LIFESTYLE_EVENT, LIFESTYLE_KEY } from '@/lib/lifestyle';
@@ -70,6 +71,7 @@ export const BACKUP_FEATURES: readonly BackupFeature[] = [
     keys: [POLL_USERS_KEY, POLL_SHARES_KEY, POLL_VOTES_KEY, POLL_SUGGESTIONS_KEY],
     event: POLL_EVENT,
   },
+  { id: 'documents', label: 'Tables', keys: [DOCUMENTS_KEY], event: DOCUMENTS_EVENT },
   { id: 'contact', label: 'Contact messages', keys: [CONTACT_KEY], event: CONTACT_EVENT },
 ];
 
