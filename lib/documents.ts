@@ -105,6 +105,25 @@ export interface Row {
    * folder and the table keeps the reference. Cells without pictures are absent.
    */
   images: Record<string, string[]>;
+  /**
+   * Column id → a piece of writing *about* that cell: what the choice means
+   * here, what was decided, what still has to happen. Kept in the same markers
+   * a cell itself holds (`lib/rich-text.ts`), so it is written and read the way
+   * everything else on this page is.
+   *
+   * Beside the cells rather than inside them, exactly as the pictures are, and
+   * for the same reason: the cell goes on holding the one word that was picked,
+   * so the column still sorts and filters by the choice. The writing is a layer
+   * over that rather than a different kind of value — see `setCellNote`.
+   *
+   * Not to be confused with the `note` **column type**, which is a cell that
+   * *is* writing. This is writing behind a cell that is something else.
+   *
+   * Kept whatever type the column is, like `Column.options`: retyping a column
+   * of choices as text and back gives every page of writing return along with
+   * every cell. Cells with nothing written about them are absent.
+   */
+  notes: Record<string, string>;
 }
 
 /**
@@ -179,6 +198,17 @@ export const OPTION_MAX_LENGTH = 40;
  * they *are* other characters: see `lib/rich-text.ts`.
  */
 export const CELL_MAX_LENGTH = 2_000;
+
+/**
+ * How much can be written *about* a cell (`Row.notes`). Several times a cell,
+ * because this is the one field on the page meant to be read as a page — the
+ * reasoning behind a choice rather than the choice — and a paragraph limit is
+ * what makes somebody keep it somewhere else instead.
+ *
+ * Not unbounded, and not near it: every table in this browser shares one
+ * localStorage quota, and a write that does not fit simply does not stick.
+ */
+export const CELL_NOTE_MAX_LENGTH = 6_000;
 
 export const MAX_TABLES = 20;
 export const MAX_COLUMNS = 24;
@@ -300,7 +330,17 @@ function toRow(value: unknown, columnIds: Set<string>): Row | null {
     }
   }
 
-  return { id: raw.id, cells, images };
+  // Absent on every row written before a cell could be written about, which
+  // reads as a row nothing has been written about — which is what those were.
+  const notes: Record<string, string> = {};
+  if (typeof raw.notes === 'object' && raw.notes !== null && !Array.isArray(raw.notes)) {
+    for (const [columnId, note] of Object.entries(raw.notes as Record<string, unknown>)) {
+      if (!columnIds.has(columnId) || typeof note !== 'string' || note === '') continue;
+      notes[columnId] = note.slice(0, CELL_NOTE_MAX_LENGTH);
+    }
+  }
+
+  return { id: raw.id, cells, images, notes };
 }
 
 function toFilter(value: unknown, columnIds: Set<string>): Filter | null {
@@ -485,7 +525,12 @@ export function addTable(
     id: makeId('tbl'),
     name: name.trim().slice(0, TABLE_NAME_MAX_LENGTH) || 'Untitled table',
     columns,
-    rows: Array.from({ length: wantedRows }, () => ({ id: makeId('row'), cells: {}, images: {} })),
+    rows: Array.from({ length: wantedRows }, () => ({
+      id: makeId('row'),
+      cells: {},
+      images: {},
+      notes: {},
+    })),
     filters: [],
     sort: null,
     stickyHeader: true,
@@ -511,6 +556,115 @@ export function toggleStickyHeader(id: string): boolean {
 
 export function deleteTable(id: string) {
   writeTables(getTables().filter((table) => table.id !== id));
+}
+
+/**
+ * A name for the copy that says what it is a copy of and is not the name of a
+ * table already there: "Notes (copy)", then "Notes (copy 2)". The tabs along the
+ * top are how a table is found, and three tabs reading "Notes" are three tabs
+ * you have to open one at a time to tell apart.
+ *
+ * A copy of a copy counts on rather than nests: the suffix already on the end is
+ * taken off before the next one goes on, so it is "Notes (copy 2)" and never
+ * "Notes (copy) (copy)", which is a name that says how it was made rather than
+ * what it is.
+ *
+ * The suffix is fitted *within* `TABLE_NAME_MAX_LENGTH` rather than run past it,
+ * so a copy of a name already at the limit is still marked as one. There are at
+ * most `MAX_TABLES` names to clash with and every attempt spells its suffix
+ * differently, so the loop always finds a free one.
+ */
+function copyName(name: string, taken: string[]): string {
+  const used = new Set(taken.map((each) => each.trim().toLowerCase()));
+  const of = name.replace(/\s*\(copy(?: \d+)?\)$/i, '').trim() || name.trim();
+
+  for (let attempt = 1; ; attempt += 1) {
+    const suffix = attempt === 1 ? ' (copy)' : ` (copy ${attempt})`;
+    const stem = of.slice(0, TABLE_NAME_MAX_LENGTH - suffix.length).trim();
+    const candidate = `${stem}${suffix}`;
+
+    if (!used.has(candidate.toLowerCase())) return candidate;
+  }
+}
+
+/**
+ * A whole table again under a new name, sitting beside the one it came from.
+ *
+ * Everything travels: the columns with their types and their lists of choices,
+ * every cell as the string it holds, and the *view* — the filters, the sort, the
+ * sticky headings — because a table copied to try something on is a table copied
+ * to keep looking at the same way.
+ *
+ * The ids do not travel. Columns and rows are given fresh ones and the cells,
+ * the pictures, the filters and the sort are read onto them, so the two tables
+ * are never one edit away from each other.
+ *
+ * The pictures come across as the same file names rather than as copies on
+ * disk, exactly as a duplicated row's do — two tables pointing at one
+ * screenshot, which is why nothing removes a file without first checking that
+ * no other cell and no post still wants it (`discardTableImages`).
+ */
+export function duplicateTable(id: string): TableDoc | null {
+  const tables = getTables();
+  if (tables.length >= MAX_TABLES) return null;
+
+  const at = tables.findIndex((table) => table.id === id);
+  if (at === -1) return null;
+
+  const source = tables[at];
+  const now = new Date().toISOString();
+
+  /** Old column id → the copy's, which everything keyed by one is read through. */
+  const columnIds = new Map(source.columns.map((column) => [column.id, makeId('col')]));
+
+  /** A record kept by column id, moved onto the copy's columns. */
+  const onCopy = <T>(record: Record<string, T>, take: (value: T) => T): Record<string, T> => {
+    const moved: Record<string, T> = {};
+
+    for (const [columnId, value] of Object.entries(record)) {
+      const to = columnIds.get(columnId);
+      if (to) moved[to] = take(value);
+    }
+
+    return moved;
+  };
+
+  const sortedOn = source.sort ? columnIds.get(source.sort.columnId) : undefined;
+
+  const copy: TableDoc = {
+    id: makeId('tbl'),
+    name: copyName(
+      source.name,
+      tables.map((table) => table.name)
+    ),
+    columns: source.columns.map((column) => ({
+      ...column,
+      id: columnIds.get(column.id) as string,
+      options: [...column.options],
+    })),
+    rows: source.rows.map((row) => ({
+      id: makeId('row'),
+      cells: onCopy(row.cells, (cell) => cell),
+      images: onCopy(row.images, (names) => [...names]),
+      notes: onCopy(row.notes, (note) => note),
+    })),
+    filters: source.filters
+      .map((filter) => {
+        const columnId = columnIds.get(filter.columnId);
+        return columnId ? { ...filter, id: makeId('flt'), columnId } : null;
+      })
+      .filter((filter): filter is Filter => filter !== null),
+    sort: source.sort && sortedOn ? { ...source.sort, columnId: sortedOn } : null,
+    stickyHeader: source.stickyHeader,
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  const next = [...tables];
+  next.splice(at + 1, 0, copy);
+  writeTables(next);
+
+  return copy;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -611,9 +765,11 @@ export function deleteColumn(tableId: string, columnId: string): boolean {
       rows: table.rows.map((row) => {
         const cells = { ...row.cells };
         const images = { ...row.images };
+        const notes = { ...row.notes };
         delete cells[columnId];
         delete images[columnId];
-        return { ...row, cells, images };
+        delete notes[columnId];
+        return { ...row, cells, images, notes };
       }),
       filters: table.filters.filter((filter) => filter.columnId !== columnId),
       sort: table.sort?.columnId === columnId ? null : table.sort,
@@ -800,7 +956,7 @@ export function addRow(
   const table = getTable(tableId);
   if (!table || table.rows.length >= MAX_ROWS) return null;
 
-  const row: Row = { id: makeId('row'), cells: {}, images: {} };
+  const row: Row = { id: makeId('row'), cells: {}, images: {}, notes: {} };
 
   const done = editTable(tableId, (current) => {
     if (current.rows.length >= MAX_ROWS) return null;
@@ -830,7 +986,7 @@ export function deleteRow(tableId: string, rowId: string): boolean {
  * checking that no other cell still wants it.
  */
 export function duplicateRow(tableId: string, rowId: string): string | null {
-  const copy: Row = { id: makeId('row'), cells: {}, images: {} };
+  const copy: Row = { id: makeId('row'), cells: {}, images: {}, notes: {} };
 
   const done = editTable(tableId, (table) => {
     const at = table.rows.findIndex((row) => row.id === rowId);
@@ -838,6 +994,7 @@ export function duplicateRow(tableId: string, rowId: string): string | null {
 
     copy.cells = { ...table.rows[at].cells };
     copy.images = { ...table.rows[at].images };
+    copy.notes = { ...table.rows[at].notes };
 
     const rows = [...table.rows];
     rows.splice(at + 1, 0, copy);
@@ -978,6 +1135,44 @@ export function allTableImageNames(): Set<string> {
   }
 
   return names;
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Writing about a cell                                                      */
+/* -------------------------------------------------------------------------- */
+
+/** What has been written about one cell, or nothing at all. */
+export function cellNote(row: Row, columnId: string): string {
+  return row.notes[columnId] ?? '';
+}
+
+/**
+ * A page of writing kept against a cell, committed.
+ *
+ * It never touches the cell itself, which is the whole point: a `select` cell
+ * goes on holding the one word that was picked, so the column still sorts by
+ * the order of its list and filters by the choice, while everything there is to
+ * say about *this* row's choice sits behind it. Filtering deliberately does not
+ * read it — "is Done" has to mean the chip says Done, or a filter would start
+ * matching rows on a word buried three paragraphs into something else.
+ *
+ * Emptied back out, the key goes rather than being stored as a blank, so a
+ * column nobody has written about costs nothing per row.
+ */
+export function setCellNote(tableId: string, rowId: string, columnId: string, value: string): boolean {
+  const trimmed = value.slice(0, CELL_NOTE_MAX_LENGTH);
+
+  return editTable(tableId, (table) => {
+    const row = table.rows.find((each) => each.id === rowId);
+    if (!row || !table.columns.some((column) => column.id === columnId)) return null;
+    if (cellNote(row, columnId) === trimmed) return null;
+
+    const notes = { ...row.notes };
+    if (trimmed.trim() === '') delete notes[columnId];
+    else notes[columnId] = trimmed;
+
+    return { ...table, rows: table.rows.map((each) => (each.id === rowId ? { ...each, notes } : each)) };
+  });
 }
 
 /* -------------------------------------------------------------------------- */

@@ -67,7 +67,12 @@ import {
 import { discardTableImages } from '@/lib/image-folder';
 import { shortcutCommand } from '@/lib/rich-text';
 import { NoteCellBody, NoteEditor } from '@/components/document/cell-note';
-import { OptionListPanel, OptionPicker, SelectCellBody } from '@/components/document/cell-select';
+import {
+  CellNotePanel,
+  OptionListPanel,
+  OptionPicker,
+  SelectCellBody,
+} from '@/components/document/cell-select';
 import { PictureViewer } from '@/components/document/picture-viewer';
 import {
   FormatToolbar,
@@ -469,6 +474,7 @@ function GridCell({
   onPasteImage,
   onViewImage,
   onToggleTick,
+  onOpenNote,
   label,
 }: {
   row: Row;
@@ -490,6 +496,8 @@ function GridCell({
   onPasteImage: (blob: Blob) => void;
   onViewImage: (names: string[], at: number) => void;
   onToggleTick: () => void;
+  /** Opens what is written about this cell, against the tag that asked. */
+  onOpenNote: (anchor: DOMRect) => void;
   label: string;
 }) {
   const box = useRef<HTMLDivElement>(null);
@@ -618,7 +626,10 @@ function GridCell({
         // Writing is shown as it was written, line breaks and all, and the row
         // grows to hold it — the same way a cell in a post's table does. A
         // number or a date is one line by nature and keeps its ellipsis.
-        className={`cursor-cell px-2 py-1.5 text-sm outline-none ${SOLID} ${
+        // Named so the tag on a `select` cell can come up under the pointer
+        // without every other cell in the row coming up with it: the row is
+        // already a `group`, and the row is not what is being reached for.
+        className={`group/cell cursor-cell px-2 py-1.5 text-sm outline-none ${SOLID} ${
           type === 'text' || type === 'note'
             ? 'whitespace-pre-wrap break-words leading-snug'
             : type === 'select'
@@ -649,7 +660,8 @@ function GridCell({
         ) : type === 'select' ? (
           // The choice as a chip, and anything the list does not offer still
           // shown as what somebody wrote — a type says how a string is read.
-          <SelectCellBody row={row} column={column} />
+          // The tag beside it opens what has been written about this cell.
+          <SelectCellBody row={row} column={column} onOpenNote={onOpenNote} />
         ) : type === 'text' ? (
           // Drawn rather than printed out: `**a**` is a bold a and a line
           // opening with `# ` is a title. Every marker is still a character
@@ -802,6 +814,8 @@ export function TableGrid({
   /** The cell whose choices are open, and the column whose list is. */
   const [pick, setPick] = useState<OpenPick | null>(null);
   const [list, setList] = useState<OpenList | null>(null);
+  /** The cell whose writing is open — the page behind a chip, not the cell. */
+  const [about, setAbout] = useState<OpenNote | null>(null);
   /** The row whose menu is open, and where on the screen to open it against. */
   const [rowMenu, setRowMenu] = useState<{ rowId: string; anchor: DOMRect } | null>(null);
   /** The cell's pictures being read over the page, and which of them is up. */
@@ -875,6 +889,16 @@ export function TableGrid({
     const column = columns.find((each) => each.id === pick.columnId);
     return row && column ? { row, column, anchor: pick.anchor, initial: pick.initial } : null;
   }, [columns, pick, table.rows]);
+
+  /** And for the writing behind a chip, looked up afresh for the same reason:
+   *  the panel shows the stored row rather than a copy taken when it opened. */
+  const openAbout = useMemo(() => {
+    if (!about) return null;
+
+    const row = table.rows.find((each) => each.id === about.rowId);
+    const column = columns.find((each) => each.id === about.columnId);
+    return row && column ? { row, column, anchor: about.anchor } : null;
+  }, [about, columns, table.rows]);
 
   const openList = useMemo(() => {
     if (!list) return null;
@@ -976,6 +1000,16 @@ export function TableGrid({
       if (key === 'Tab') {
         event.preventDefault();
         move(0, event.shiftKey ? -1 : 1);
+        return;
+      }
+
+      // Enter opens the choices; Alt+Enter opens what is written about the
+      // cell. The tag that does the same with the mouse is not its own stop on
+      // the way round with Tab — the grid moves by cell — so this is the way
+      // to it without the hand leaving the keyboard.
+      if (key === 'Enter' && event.altKey && column.type === 'select') {
+        event.preventDefault();
+        setAbout({ rowId, columnId: column.id, anchor: event.currentTarget.getBoundingClientRect() });
         return;
       }
 
@@ -1261,7 +1295,8 @@ export function TableGrid({
                       draft={active ? draft : null}
                       panelOpen={
                         (note?.rowId === row.id && note.columnId === column.id) ||
-                        (pick?.rowId === row.id && pick.columnId === column.id)
+                        (pick?.rowId === row.id && pick.columnId === column.id) ||
+                        (about?.rowId === row.id && about.columnId === column.id)
                       }
                       label={`${column.name}, row ${rowIndex + 1}`}
                       onSelect={() => {
@@ -1271,6 +1306,14 @@ export function TableGrid({
                       onPasteImage={(blob) => void pasteImage(row, column.id, blob)}
                       onViewImage={(names, at) => setViewing({ names, at })}
                       onToggleTick={() => toggleTick(table.id, row.id, column.id)}
+                      onOpenNote={(anchor) => {
+                        // The cursor follows: the panel is about this cell, and
+                        // closing it should leave the keyboard where the writing
+                        // was rather than wherever it was three rows ago.
+                        setDraft(null);
+                        setCursor({ rowId: row.id, columnId: column.id });
+                        setAbout({ rowId: row.id, columnId: column.id, anchor });
+                      }}
                       onBeginEdit={(initial, rect) => beginEdit(row.id, column.id, initial, rect)}
                       onDraft={setDraft}
                       onCommit={(next) => commit(row.id, column.id, next)}
@@ -1340,6 +1383,20 @@ export function TableGrid({
         />
       )}
 
+      {/* The page behind a chip, out here for the same reason: a panel inside
+          the scrolling box is cut off by its edge on every row near the
+          bottom. It leaves the cell alone — the chip is still the one word the
+          column sorts and filters by. */}
+      {openAbout && (
+        <CellNotePanel
+          table={table}
+          row={openAbout.row}
+          column={openAbout.column}
+          anchor={openAbout.anchor}
+          onClose={() => setAbout(null)}
+        />
+      )}
+
       {rowMenu && (
         <RowMenu
           anchor={rowMenu.anchor}
@@ -1391,7 +1448,11 @@ export function TableGrid({
         <strong className="font-medium">Esc</strong> puts back what was there. Drag the line between two
         headings to resize a column. A <strong className="font-medium">Pick from a list</strong> column opens
         its choices instead — type to find one, or type a new one and press Enter to add it to the list, and
-        the column sorts in the order the list is in. A{' '}
+        the column sorts in the order the list is in. Every cell in one carries an{' '}
+        <strong className="font-medium">ⓘ</strong> beside its chip: it opens a page you can write about that
+        cell on, as long as a post and with the same formatting, and the chip itself is untouched so the
+        column still sorts and filters by the choice. It is marked pink once something is written there, and{' '}
+        <strong className="font-medium">Alt+Enter</strong> on the cell opens it. A{' '}
         <strong className="font-medium">Text &amp; pictures</strong> column opens a panel instead, and takes a
         snip pasted straight onto the cell; click a picture in one to read
         it over the whole page, where it can be shown at full size. Text cells take formatting:{' '}
