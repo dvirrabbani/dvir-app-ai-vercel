@@ -1351,6 +1351,108 @@ export function setCellNote(tableId: string, rowId: string, columnId: string, va
 }
 
 /* -------------------------------------------------------------------------- */
+/*  A whole cell at once                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Everything one cell holds, in one value: what it says, the pictures under it
+ * and the page written about it.
+ *
+ * The three are kept in three different places on the row — `cells`, `images`
+ * and `notes` — for reasons that are good ones, and every one of them is still
+ * *that cell*. This is what a cell looks like to somebody copying one: the
+ * whole of it, or it would not be a copy.
+ */
+export interface CellContents {
+  /** Exactly as it is stored, markers and all — see `lib/rich-text.ts`. */
+  value: string;
+  /** File names in the picture folder, not bytes: `lib/image-folder.ts`. */
+  images: string[];
+  /** What has been written about the cell, or an empty string. */
+  note: string;
+}
+
+/** One cell gathered up. The pictures come away as a copy of the list, so
+ *  what is held is not the row's own array. */
+export function cellContents(row: Row, columnId: string): CellContents {
+  return {
+    value: cellValue(row, columnId),
+    images: [...cellImages(row, columnId)],
+    note: cellNote(row, columnId),
+  };
+}
+
+/**
+ * The same put down on another cell — all three parts in **one** write.
+ *
+ * One write rather than three calls to `setCell`, `writeCellImages` and
+ * `setCellNote` because those are three trips to storage and three events, and
+ * a view listening to the first of them would draw a cell with the new writing
+ * and the old pictures still under it.
+ *
+ * Nothing here asks what the column holds. A type says how a string is *read*
+ * and this is the string being written, so a value the target column's list
+ * does not offer arrives and is shown dashed, exactly as one typed by hand
+ * would be. Whether a copy is *allowed* to cross from one kind of column to
+ * another is a question for the surface, which is where the person who could
+ * be surprised by the answer is standing.
+ *
+ * The pictures are put across as the names they are, so both cells point at the
+ * same files — the same as a duplicated row, and safe for the same reason:
+ * `discardTableImages` removes nothing another cell still wants. What was under
+ * the cell before is *not* swept here; this module knows nothing about the
+ * folder, and the caller gathers those names first.
+ */
+export function setCellContents(
+  tableId: string,
+  rowId: string,
+  columnId: string,
+  contents: CellContents
+): boolean {
+  const value = contents.value.slice(0, CELL_MAX_LENGTH);
+  const images = toCellImages(contents.images);
+  // Nothing but space is nothing written, as it is for `setCellNote` — kept as
+  // the string that will actually be stored, so the comparison below is against
+  // what this is about to write rather than against what it was handed.
+  const trimmed = contents.note.slice(0, CELL_NOTE_MAX_LENGTH);
+  const note = trimmed.trim() === '' ? '' : trimmed;
+
+  return editTable(tableId, (table) => {
+    const row = table.rows.find((each) => each.id === rowId);
+    if (!row || !table.columns.some((column) => column.id === columnId)) return null;
+
+    // A cell put back exactly as it was is not a change: no write, and no event
+    // telling every open view to draw itself again.
+    const held = cellImages(row, columnId);
+    const same =
+      cellValue(row, columnId) === value &&
+      cellNote(row, columnId) === note &&
+      held.length === images.length &&
+      held.every((name, at) => name === images[at]);
+    if (same) return null;
+
+    const cells = { ...row.cells };
+    if (value === '') delete cells[columnId];
+    else cells[columnId] = value;
+
+    const pictures = { ...row.images };
+    if (images.length === 0) delete pictures[columnId];
+    else pictures[columnId] = images;
+
+    const notes = { ...row.notes };
+    if (note === '') delete notes[columnId];
+    else notes[columnId] = note;
+
+    return {
+      ...table,
+      rows: table.rows.map((each) =>
+        each.id === rowId ? { ...each, cells, images: pictures, notes } : each
+      ),
+    };
+  });
+}
+
+/* -------------------------------------------------------------------------- */
 /*  Filtering                                                                 */
 /* -------------------------------------------------------------------------- */
 
