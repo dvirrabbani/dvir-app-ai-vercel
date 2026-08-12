@@ -14,7 +14,7 @@
  * and every write goes through it. This is only the surface.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowDown,
   ArrowDownToLine,
@@ -148,6 +148,14 @@ function displayCell(value: string, type: ColumnType): string {
 /*  The menu on a column                                                      */
 /* -------------------------------------------------------------------------- */
 
+/** `w-48` measured, since the menu is placed by hand rather than by `absolute`. */
+const HEADER_MENU_WIDTH = 192;
+
+/** Between the menu and the button it belongs to, and between it and the edge
+ *  of the window. */
+const HEADER_MENU_GAP = 4;
+const HEADER_MENU_EDGE = 8;
+
 function HeaderMenu({
   table,
   column,
@@ -162,18 +170,32 @@ function HeaderMenu({
   /** Opens the column's list of choices, against the menu it was asked from. */
   onEditList: (anchor: DOMRect) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  // Where the button was when it was pressed. The menu is `position: fixed`
+  // against it — the same rule the row menu, the note panel and the list of
+  // choices follow — because this one is taller than the scroll box it is drawn
+  // inside, and an `absolute` menu is simply cut off by that box's edge:
+  // everything from the filter down was unreachable on a short window. Holding
+  // the rect rather than a boolean is what says the menu is open.
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
+  const open = anchor !== null;
   const box = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+
+  const close = useCallback(() => setAnchor(null), []);
+  const toggle = () =>
+    setAnchor(open ? null : (trigger.current?.getBoundingClientRect() ?? null));
 
   useEffect(() => {
     if (!open) return;
 
-    const close = (event: MouseEvent) => {
-      if (!box.current?.contains(event.target as Node)) setOpen(false);
+    const away = (event: MouseEvent) => {
+      // The menu is out of flow but still inside this wrapper in the DOM, so a
+      // click in it is still "contained" and the check needs nothing more.
+      if (!box.current?.contains(event.target as Node)) setAnchor(null);
     };
 
-    document.addEventListener('mousedown', close);
-    return () => document.removeEventListener('mousedown', close);
+    document.addEventListener('mousedown', away);
+    return () => document.removeEventListener('mousedown', away);
   }, [open]);
 
   const full = table.columns.length >= MAX_COLUMNS;
@@ -181,11 +203,35 @@ function HeaderMenu({
   const item =
     'flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left text-xs transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-white/10';
 
+  // Below the button by preference, above it when there is genuinely more room
+  // that way, and capped either way at the room there actually is — so the menu
+  // scrolls inside itself rather than running off the bottom of the window.
+  // `overscroll-contain` stops the table underneath taking over the wheel once
+  // the menu has reached its end.
+  const roomBelow = anchor ? window.innerHeight - anchor.bottom - HEADER_MENU_GAP - HEADER_MENU_EDGE : 0;
+  const roomAbove = anchor ? anchor.top - HEADER_MENU_GAP - HEADER_MENU_EDGE : 0;
+  const upwards = roomBelow < roomAbove;
+
+  const place: CSSProperties | undefined = anchor
+    ? {
+        left: Math.max(
+          HEADER_MENU_EDGE,
+          Math.min(anchor.right - HEADER_MENU_WIDTH, window.innerWidth - HEADER_MENU_WIDTH - HEADER_MENU_EDGE),
+        ),
+        width: HEADER_MENU_WIDTH,
+        maxHeight: Math.max(upwards ? roomAbove : roomBelow, 0),
+        ...(upwards
+          ? { bottom: window.innerHeight - anchor.top + HEADER_MENU_GAP }
+          : { top: anchor.bottom + HEADER_MENU_GAP }),
+      }
+    : undefined;
+
   return (
     <div ref={box} className="relative shrink-0">
       <button
+        ref={trigger}
         type="button"
-        onClick={() => setOpen((was) => !was)}
+        onClick={toggle}
         title={`Options for ${column.name}`}
         aria-label={`Options for ${column.name}`}
         aria-expanded={open}
@@ -196,7 +242,8 @@ function HeaderMenu({
 
       {open && (
         <div
-          className={`absolute right-0 top-6 z-30 w-48 rounded-xl border bg-white p-1 shadow-lg dark:bg-[#26262A] ${LINE}`}
+          style={place}
+          className={`fixed z-50 overflow-y-auto overscroll-contain rounded-xl border bg-white p-1 shadow-lg dark:bg-[#26262A] ${LINE}`}
         >
           <p className={`px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide ${MUTED}`}>
             Holds
@@ -207,14 +254,14 @@ function HeaderMenu({
               type="button"
               onClick={() => {
                 updateColumn(table.id, column.id, { type });
-                setOpen(false);
+                close();
 
                 // A column that has just been told it holds choices off a list,
                 // and has no list, is a column of nothing you can pick — so the
                 // list opens rather than leaving somebody to find it.
                 if (picksFromList(type) && column.options.length === 0) {
-                  const anchor = box.current?.getBoundingClientRect();
-                  if (anchor) onEditList(anchor);
+                  const at = box.current?.getBoundingClientRect();
+                  if (at) onEditList(at);
                 }
               }}
               className={`${item} ${column.type === type ? 'font-semibold text-[#D81B60] dark:text-[#FF9EC1]' : SOLID}`}
@@ -229,9 +276,9 @@ function HeaderMenu({
             <button
               type="button"
               onClick={() => {
-                const anchor = box.current?.getBoundingClientRect();
-                setOpen(false);
-                if (anchor) onEditList(anchor);
+                const at = box.current?.getBoundingClientRect();
+                close();
+                if (at) onEditList(at);
               }}
               className={`${item} ${SOLID}`}
             >
@@ -244,7 +291,7 @@ function HeaderMenu({
             type="button"
             onClick={() => {
               onFilter();
-              setOpen(false);
+              close();
             }}
             className={`${item} ${SOLID}`}
           >
@@ -261,7 +308,7 @@ function HeaderMenu({
             disabled={full}
             onClick={() => {
               addColumn(table.id, { at: index });
-              setOpen(false);
+              close();
             }}
             title={full ? `A table holds ${MAX_COLUMNS} columns` : `Add a column before ${column.name}`}
             className={`${item} ${SOLID}`}
@@ -274,7 +321,7 @@ function HeaderMenu({
             disabled={full}
             onClick={() => {
               addColumn(table.id, { at: index + 1 });
-              setOpen(false);
+              close();
             }}
             title={full ? `A table holds ${MAX_COLUMNS} columns` : `Add a column after ${column.name}`}
             className={`${item} ${SOLID}`}
@@ -288,7 +335,7 @@ function HeaderMenu({
             disabled={index === 0}
             onClick={() => {
               moveColumn(table.id, column.id, -1);
-              setOpen(false);
+              close();
             }}
             className={`${item} ${SOLID}`}
           >
@@ -300,7 +347,7 @@ function HeaderMenu({
             disabled={index === table.columns.length - 1}
             onClick={() => {
               moveColumn(table.id, column.id, 1);
-              setOpen(false);
+              close();
             }}
             className={`${item} ${SOLID}`}
           >
@@ -319,7 +366,7 @@ function HeaderMenu({
               const names = imageNamesIn(table.rows, column.id);
               deleteColumn(table.id, column.id);
               if (names.length > 0) void discardTableImages(names);
-              setOpen(false);
+              close();
             }}
             title={
               table.columns.length <= 1
