@@ -23,6 +23,7 @@ import {
   operatorLabel,
   operatorNeedsValue,
   operatorsFor,
+  picksFromList,
   removeFilter,
   updateFilter,
 } from '@/lib/documents';
@@ -104,11 +105,13 @@ export function FilterBar({ table }: { table: TableDoc }) {
                 </select>
 
                 {operatorNeedsValue(filter.operator) &&
-                  (column.type === 'select' ? (
+                  (picksFromList(column.type) ? (
                     // A choice is picked from the same list the cells are, so
                     // a filter cannot be left asking for a spelling no cell in
                     // the column has. An empty one is not a filter yet — every
-                    // row stays until one is chosen.
+                    // row stays until one is chosen. A column holding several
+                    // is asked about one tag at a time, and two filters narrow
+                    // to two tags exactly as two filters always narrow.
                     <select
                       value={filter.value}
                       onChange={(event) => updateFilter(table.id, filter.id, { value: event.target.value })}

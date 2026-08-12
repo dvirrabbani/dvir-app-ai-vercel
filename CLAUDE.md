@@ -228,19 +228,48 @@ one. Filtering offers `is`/`is not`/empty/not-empty and nothing else, with the
 choices themselves in the filter bar rather than a text box, since a chip is one
 of a set rather than a spelling.
 
-Both halves live in `components/document/cell-select.tsx`, the way the diet menu
+**`tags`** ("Pick several from a list") is `select` with the cell holding as
+many of the choices as belong there, **separated by commas in the very same
+string** — `TAG_SEPARATOR`, read by `readTags` and written by `writeTags`. A
+comma because that is what somebody types when they mean several things, which
+is the whole test: a column filled in by hand with "Design, Urgent" is two chips
+the moment it is retyped, and retyping it back gives the line return exactly as
+it was written. A second field beside the cell would have lost that, the same
+way a second field for the formatting markers would. One consequence to know:
+a comma cannot be part of a choice's name, so `optionName` takes it out on the
+way in — on the way *in* only, nothing already on a list being rewritten — and
+`readTags` reads a tag through the same function, which is what guarantees every
+tag is a name the list is able to offer. `MAX_CELL_TAGS` is 12, well under the
+24 a list can hold: a cell carrying every choice says nothing.
+
+The two types share one list, one set of chips, one page of writing per cell and
+one order to sort in, so nearly everything asks `picksFromList(type)` rather than
+naming both — and `cellChoices(row, column)` is the one place the difference is
+spelled out. What differs: picking on a `tags` cell **leaves the menu open** and
+clears the box for the next one (one choice is an answer; several are picked in
+one sitting), a pick puts the whole line back in the list's order (`orderTags`,
+so the same tag sits in the same place on every row), sorting reads the tags the
+way two words are ordered by their letters and puts a shorter cell before the
+longer one it is a prefix of, and filtering offers **`has`/`does not have`**
+(`has-tag`/`no-tag`) rather than `is` — "is Urgent" of a cell reading "Design,
+Urgent" has no honest answer. Those two operators are matched on the *operator*
+rather than the column's type, so a `select` column read by one still answers
+sensibly. Two filters narrow to two tags, as two filters always narrow.
+
+All of it lives in `components/document/cell-select.tsx`, the way the diet menu
 keeps its chips and its editor together: `OptionPicker` is what a cell opens —
 type to find, type something new and press Enter to put it on the list *and* in
 the cell — and `OptionListPanel`, behind "Edit the list" in the column's own
 menu, is where choices are renamed, reordered and removed. Renaming a choice
 carries every cell holding it, which is the one place a cell is rewritten by
-anything but typing in it; removing one leaves them exactly as they are, as the
-diet menu does. A chip's colour is its **place on the list** rather than a hash
-of its name or anything stored: a hash puts "To do" and "In progress" on the same
-tint about half the time, and a column where every chip is one colour is a column
-you have to read instead of glance at.
+anything but typing in it — on a cell of several it carries the one tag and
+leaves the rest of the line in the order it was in; removing one leaves them
+exactly as they are, as the diet menu does. A chip's colour is its **place on
+the list** rather than a hash of its name or anything stored: a hash puts "To do"
+and "In progress" on the same tint about half the time, and a column where every
+chip is one colour is a column you have to read instead of glance at.
 
-Every cell in one also carries an **ⓘ beside its chip that opens a page of
+Every cell in either also carries an **ⓘ beside its chips that opens a page of
 writing about that cell** — what the choice means here, what is blocking it, who
 was asked. It is kept on the row beside the cells (`Row.notes`, column id → the
 writing) for exactly the reason `Row.images` is: the cell goes on holding the one
@@ -324,7 +353,7 @@ becoming that.
 A row and a column can also go in **beside** one that is already there, rather
 than only at the end: the ⋮ beside a row's number opens Insert row above/below
 (and Duplicate, which used to be an icon of its own — three icons do not fit in
-a 48px column, and the bin is the one worth keeping out in the open), and the ⋮
+that column, and the bin is the one worth keeping out in the open), and the ⋮
 in a heading opens Insert column left/right. Both are positions in the *stored*
 order, which is the only order there is — a sort is a way of looking at the rows
 and `visibleRows` never rearranges them — so a row put under the one you are
@@ -335,7 +364,12 @@ that opened it, like the note panel and the list of choices: drawn inside the
 scroll box it would be cut off on every row near the bottom. Its button carries
 `data-row-menu` so the menu's own click-away can tell a click on the trigger
 apart from a click elsewhere — closing on that mousedown would only have the
-click reopen it, and the toggle would never shut.
+click reopen it, and the toggle would never shut. `NUMBER_COLUMN_WIDTH` is sized
+for all three of the things in that column at once — the number at three digits
+(a table holds 500 rows), the ⋮ and the bin — rather than for the number, which
+is what left the two buttons hanging over the cell's own border. The `<th>`
+takes its width from the constant rather than restating it in a class, since
+that number and the one the table declares have to be the same.
 
 A **whole table** goes again the same way (`duplicateTable`, the Duplicate button
 beside Delete): the columns with their types and lists of choices, every cell as

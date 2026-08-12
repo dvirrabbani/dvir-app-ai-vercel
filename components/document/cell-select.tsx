@@ -1,16 +1,25 @@
 'use client';
 
 /**
- * A cell that holds one of a list of choices.
+ * A cell that holds choices off a list — one of them, or several.
  *
  * The column keeps the list — "To do, Doing, Done" — and the cell keeps the
- * name of the one that was picked, as the plain string it always keeps, so a
- * column of choices retyped as text is still every word somebody chose. What
- * the type adds is that the words come off a menu instead of being typed out
- * forty times, and that they come out in the order the list is in rather than
+ * name of what was picked, as the plain string it always keeps, so a column of
+ * choices retyped as text is still every word somebody chose. What the type
+ * adds is that the words come off a menu instead of being typed out forty
+ * times, and that they come out in the order the list is in rather than
  * alphabetically.
  *
- * Both halves live here, the way the diet menu keeps its chips and its editor
+ * Two types share all of this. **Pick from a list** (`select`) holds one, and
+ * the cell is that word. **Pick several from a list** (`tags`) holds as many as
+ * belong there, separated by commas in the very same string — a comma being
+ * what somebody types when they mean several things, which is what lets a
+ * column filled in by hand become chips the moment it is retyped, and lets
+ * retyping it back give the line return exactly as it was written. Everything
+ * here reads a cell through `cellChoices`, so neither half has to ask which
+ * type it is looking at more than once.
+ *
+ * All of it lives here, the way the diet menu keeps its chips and its editor
  * together: `OptionPicker` is what a cell opens, and `OptionListPanel` is the
  * list itself, opened from the column's own menu. A choice is added from
  * either, because the moment you want one is usually the moment you are
@@ -22,20 +31,23 @@ import { Check, ChevronDown, ChevronUp, Info, Plus, Trash2, X } from 'lucide-rea
 import {
   CELL_NOTE_MAX_LENGTH,
   Column,
+  MAX_CELL_TAGS,
   MAX_COLUMN_OPTIONS,
   OPTION_MAX_LENGTH,
   Row,
   TableDoc,
   addOption,
+  cellChoices,
   cellNote,
-  cellValue,
   moveOption,
   optionIndex,
+  optionName,
   removeOption,
   renameOption,
   sameOption,
   setCell,
   setCellNote,
+  toggleTag,
   unlistedValues,
 } from '@/lib/documents';
 import { plainRichText, shortcutCommand } from '@/lib/rich-text';
@@ -114,13 +126,30 @@ export function OptionChip({
   );
 }
 
+/**
+ * One choice drawn in the column's own spelling, so a cell filled in by hand
+ * stops looking like three different answers the moment the list catches up
+ * with it — and anything the list does not offer drawn as what somebody wrote.
+ */
+function ChoiceChip({ column, name }: { column: Column; name: string }) {
+  const place = optionIndex(column, name);
+  return <OptionChip name={place === -1 ? name : column.options[place]} place={place} className="min-w-0" />;
+}
+
 /** How much of the writing is put on the tag's tooltip: enough to know which
  *  cell you are about to open, not enough to be read standing up. */
 const PEEK_LENGTH = 140;
 
 /**
- * The cell as it sits in the table: the chip, and the tag that opens what has
- * been written about it.
+ * The cell as it sits in the table: what has been picked, and the tag that
+ * opens what has been written about it.
+ *
+ * A `tags` cell wraps its chips onto as many lines as it takes rather than
+ * running them off the edge — the row already grows to hold a text cell's line
+ * breaks, and half a chip is worse than a taller row. They are shown in the
+ * order they are stored, which a pick puts in the list's order: the same tag in
+ * the same relative place on every row is what makes a column of them readable
+ * at a glance instead of one cell at a time.
  *
  * The tag is only fully out when there *is* something written — a column of a
  * hundred rows with an icon burning on every one of them is a column you have
@@ -138,13 +167,10 @@ export function SelectCellBody({
   /** Opens the writing behind this cell, against the tag that asked for it. */
   onOpenNote: (anchor: DOMRect) => void;
 }) {
-  const value = cellValue(row, column.id).trim();
   const note = cellNote(row, column.id);
   const written = note.trim() !== '';
 
-  // Shown in the list's own spelling once it is on the list, so a column
-  // filled in by hand stops looking like three different answers.
-  const place = optionIndex(column, value);
+  const held = cellChoices(row, column);
 
   const peek = written ? plainRichText(note).replace(/\s+/g, ' ').trim().slice(0, PEEK_LENGTH) : '';
 
@@ -152,8 +178,12 @@ export function SelectCellBody({
     <span className="flex items-start justify-between gap-1">
       {/* A non-breaking space so an empty cell is still a full line tall and
           can be clicked on at all. */}
-      {value ? (
-        <OptionChip name={place === -1 ? value : column.options[place]} place={place} className="min-w-0" />
+      {held.length > 0 ? (
+        <span className="flex min-w-0 flex-1 flex-wrap items-start gap-1">
+          {held.map((name) => (
+            <ChoiceChip key={name.toLowerCase()} column={column} name={name} />
+          ))}
+        </span>
       ) : (
         <span>{' '}</span>
       )}
@@ -240,6 +270,12 @@ const FIELD =
  * the list is almost always the moment you are looking at the cell that wants
  * it, and sending somebody to the column's menu and back to add "Blocked" is
  * how a list ends up with three spellings of it typed into cells instead.
+ *
+ * A cell holding several is the same menu that **stays open**: one choice is an
+ * answer and the menu has done its job, but several are picked in one go, and a
+ * menu that shut after each would be reopened four times to say "Design,
+ * Urgent, Waiting". The box clears itself after each so the next one can just
+ * be typed, and Escape — or a click anywhere else — is what says you are done.
  */
 export function OptionPicker({
   table,
@@ -264,8 +300,18 @@ export function OptionPicker({
   const box = useRef<HTMLDivElement>(null);
   useCloseOnClickAway(box, onClose);
 
-  const value = cellValue(row, column.id);
-  const current = optionIndex(column, value);
+  const several = column.type === 'tags';
+
+  /** What the cell is holding: one choice, or every tag between the commas. */
+  const held = useMemo(() => cellChoices(row, column), [column, row]);
+  const holding = useCallback(
+    (name: string) => held.some((each) => sameOption(each, name)),
+    [held]
+  );
+
+  /** No room for another tag. Nothing is dropped to make one — which tag went
+   *  would be nobody's decision — so the list simply stops answering. */
+  const full = several && held.length >= MAX_CELL_TAGS;
 
   const matches = useMemo(() => {
     const wanted = query.trim().toLowerCase();
@@ -277,7 +323,10 @@ export function OptionPicker({
   // query narrowing to two choices must not leave Enter pointing at nothing.
   const highlighted = matches.length === 0 ? -1 : Math.min(at, matches.length - 1);
 
-  const typed = query.trim().slice(0, OPTION_MAX_LENGTH);
+  // As the list would store it, not as it was typed: this is going onto the
+  // list *and* into the cell, and two spellings of it would put the choice in
+  // dashed — as something the list does not offer — the moment it was added.
+  const typed = optionName(query);
   const canAdd =
     typed !== '' &&
     column.options.length < MAX_COLUMN_OPTIONS &&
@@ -285,18 +334,34 @@ export function OptionPicker({
 
   const pick = useCallback(
     (choice: string) => {
-      setCell(table.id, row.id, column.id, choice);
-      onClose();
+      // One choice is an answer, so the menu has finished. Several are picked
+      // in one sitting, so it stays and clears itself for the next.
+      if (!several) {
+        setCell(table.id, row.id, column.id, choice);
+        onClose();
+        return;
+      }
+
+      toggleTag(table.id, row.id, column.id, choice);
+      setQuery('');
+      setAt(0);
     },
-    [column.id, onClose, row.id, table.id]
+    [column.id, onClose, row.id, several, table.id]
   );
 
   const add = useCallback(() => {
-    if (!canAdd) return;
+    if (!canAdd || full) return;
     // Onto the list and into the cell in one go: a choice made up on the spot
     // is being made because this row needs it.
     if (addOption(table.id, column.id, typed)) pick(typed);
-  }, [canAdd, column.id, pick, table.id, typed]);
+  }, [canAdd, column.id, full, pick, table.id, typed]);
+
+  /** Anything in this cell the list is not offering, which is the one thing
+   *  that would otherwise mean retyping it into the column's own menu. */
+  const unlistedHere = useMemo(
+    () => held.filter((name) => optionIndex(column, name) === -1),
+    [column, held]
+  );
 
   return (
     <div
@@ -334,6 +399,14 @@ export function OptionPicker({
         <span className={`min-w-0 flex-1 truncate text-xs font-semibold ${SOLID}`} dir="auto">
           {column.name}
         </span>
+        {/* How many are on, on a cell that can hold several — the chips are
+            behind the panel as often as not, and "3 of 12" is what says
+            whether there is room for the one you came to add. */}
+        {several && held.length > 0 && (
+          <span className={`shrink-0 text-[11px] tabular-nums ${MUTED}`}>
+            {held.length} of {MAX_CELL_TAGS}
+          </span>
+        )}
         <button
           type="button"
           onClick={onClose}
@@ -354,7 +427,13 @@ export function OptionPicker({
         }}
         dir="auto"
         maxLength={OPTION_MAX_LENGTH}
-        placeholder={column.options.length === 0 ? 'Type the first choice' : 'Find or add a choice'}
+        placeholder={
+          column.options.length === 0
+            ? 'Type the first choice'
+            : several
+              ? 'Find or add — the menu stays open'
+              : 'Find or add a choice'
+        }
         aria-label={`Find or add a choice for ${column.name}`}
         className={`${FIELD} ${LINE} ${SOLID} placeholder:text-gray-500 dark:placeholder:text-gray-400`}
       />
@@ -364,6 +443,7 @@ export function OptionPicker({
           // Its place on the *column's* list, not in what the box has narrowed
           // it to: a choice must not change colour while you type its name.
           const place = column.options.indexOf(option);
+          const on = holding(option);
 
           return (
             <li key={option}>
@@ -371,12 +451,15 @@ export function OptionPicker({
                 type="button"
                 onMouseEnter={() => setAt(index)}
                 onClick={() => pick(option)}
-                className={`flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1 text-left transition-colors ${
+                // Every one already on stays pressable, since that is how it
+                // comes off again; only adding a thirteenth is refused.
+                disabled={full && !on}
+                className={`flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                   index === highlighted ? 'bg-black/[0.06] dark:bg-white/10' : ''
                 }`}
               >
                 <OptionChip name={option} place={place} className="min-w-0" />
-                {current === place && (
+                {on && (
                   <Check className="ml-auto h-3.5 w-3.5 shrink-0 text-[#D81B60] dark:text-[#FF9EC1]" />
                 )}
               </button>
@@ -393,7 +476,7 @@ export function OptionPicker({
         )}
       </ul>
 
-      {canAdd && (
+      {canAdd && !full && (
         <button
           type="button"
           onClick={add}
@@ -406,34 +489,64 @@ export function OptionPicker({
         </button>
       )}
 
+      {full && (
+        <p className={`px-1.5 text-[11px] ${MUTED}`}>
+          {MAX_CELL_TAGS} tags is the lot for one cell. Take one off to make room.
+        </p>
+      )}
+
       {/* Only what this cell is holding that the list is not offering: the
-          value stays where it is either way, and the button is the one thing
-          that would otherwise mean retyping it into the column's own menu. */}
-      {value.trim() !== '' && current === -1 && (
-        <div className={`flex items-center gap-1.5 border-t pt-1.5 ${LINE}`}>
-          <OptionChip name={value.trim()} place={-1} className="min-w-0" />
-          <button
-            type="button"
-            disabled={column.options.length >= MAX_COLUMN_OPTIONS}
-            onClick={() => {
-              addOption(table.id, column.id, value);
-              onClose();
-            }}
-            className={`ml-auto shrink-0 rounded-lg px-1.5 py-1 text-[11px] underline transition-colors hover:bg-black/5 disabled:no-underline disabled:opacity-40 dark:hover:bg-white/10 ${MUTED}`}
-          >
-            Add to the list
-          </button>
+          words stay where they are either way, and the button is the one thing
+          that would otherwise mean retyping them into the column's own menu. */}
+      {unlistedHere.length > 0 && (
+        <div className={`flex flex-col gap-1 border-t pt-1.5 ${LINE}`}>
+          {unlistedHere.map((name) => (
+            <div key={name.toLowerCase()} className="flex items-center gap-1.5">
+              <OptionChip name={name} place={-1} className="min-w-0" />
+              <button
+                type="button"
+                disabled={column.options.length >= MAX_COLUMN_OPTIONS}
+                onClick={() => {
+                  addOption(table.id, column.id, name);
+
+                  // A cell holding one *is* the choice, so it is made to say
+                  // what the list now offers when the two differ — a comma
+                  // cannot be part of a name, and a button reading "add to the
+                  // list" that leaves the chip dashed has not done what it
+                  // says. A tag can never differ: `readTags` reads one exactly
+                  // as a name is written. Then there is nothing left to do
+                  // here, on a cell that holds only the one.
+                  if (!several) {
+                    setCell(table.id, row.id, column.id, optionName(name));
+                    onClose();
+                  }
+                }}
+                className={`ml-auto shrink-0 rounded-lg px-1.5 py-1 text-[11px] underline transition-colors hover:bg-black/5 disabled:no-underline disabled:opacity-40 dark:hover:bg-white/10 ${MUTED}`}
+              >
+                Add to the list
+              </button>
+            </div>
+          ))}
         </div>
       )}
 
-      {value.trim() !== '' && (
+      {held.length > 0 && (
         <button
           type="button"
-          onClick={() => pick('')}
+          onClick={() => {
+            setCell(table.id, row.id, column.id, '');
+            onClose();
+          }}
           className={`rounded-lg px-1.5 py-1 text-left text-xs transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${MUTED}`}
         >
           Empty this cell
         </button>
+      )}
+
+      {several && (
+        <p className={`px-1.5 text-[11px] ${MUTED}`}>
+          Click a choice to put it on or take it off. Esc when you are done.
+        </p>
       )}
     </div>
   );
@@ -482,7 +595,7 @@ export function CellNotePanel({
   onClose: () => void;
 }) {
   const stored = cellNote(row, column.id);
-  const value = cellValue(row, column.id).trim();
+  const held = cellChoices(row, column);
 
   const [draft, setDraft] = useState(stored);
 
@@ -507,7 +620,6 @@ export function CellNotePanel({
   // `commit` never changes, so this runs on the way out and nowhere else.
   useEffect(() => commit, [commit]);
 
-  const place = optionIndex(column, value);
   const left = CELL_NOTE_MAX_LENGTH - draft.length;
 
   return (
@@ -527,16 +639,22 @@ export function CellNotePanel({
       }}
       className={`${PANEL} ${LINE} overflow-auto`}
     >
-      <div className="flex items-center gap-1.5">
-        <span className={`min-w-0 shrink truncate text-xs font-semibold ${SOLID}`} dir="auto">
+      <div className="flex items-start gap-1.5">
+        <span className={`min-w-0 shrink truncate text-xs font-semibold leading-6 ${SOLID}`} dir="auto">
           {column.name}
         </span>
 
-        {/* Which cell this is about, said the way the cell itself says it. A
-            panel over a scrolled grid can easily be the only thing on the
-            screen, and "about this cell" is no use once the cell is hidden
-            behind it. */}
-        {value !== '' && <OptionChip name={place === -1 ? value : column.options[place]} place={place} />}
+        {/* Which cell this is about, said the way the cell itself says it —
+            every chip of it, on a cell holding several. A panel over a scrolled
+            grid can easily be the only thing on the screen, and "about this
+            cell" is no use once the cell is hidden behind it. */}
+        {held.length > 0 && (
+          <span className="flex min-w-0 shrink flex-wrap items-center gap-1 py-0.5">
+            {held.map((name) => (
+              <ChoiceChip key={name.toLowerCase()} column={column} name={name} />
+            ))}
+          </span>
+        )}
 
         <button
           type="button"
@@ -585,7 +703,11 @@ export function CellNotePanel({
       <p className={`text-[11px] ${left < 500 ? 'text-[#B3261E] dark:text-[#FFB4AB]' : MUTED}`}>
         {left < 500
           ? `${left} characters left.`
-          : 'Ctrl+B is bold and Ctrl+Alt+1 a title. Ctrl+Enter closes. The chip itself is untouched, so the column still sorts and filters by the choice.'}
+          : `Ctrl+B is bold and Ctrl+Alt+1 a title. Ctrl+Enter closes. ${
+              column.type === 'tags'
+                ? 'The tags themselves are untouched, so the column still sorts and filters by what was picked.'
+                : 'The chip itself is untouched, so the column still sorts and filters by the choice.'
+            }`}
       </p>
     </div>
   );
