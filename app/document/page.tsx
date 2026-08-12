@@ -238,17 +238,29 @@ function HowToUse() {
         </p>
 
         <p>
-          <strong className="font-medium">Ctrl+C</strong> on a cell — clicked once, not opened — takes a
-          copy of the whole of it: what it says with its formatting, the pictures under it and the page
-          written about it. <strong className="font-medium">Ctrl+V</strong> puts it on another cell, over
-          whatever was there. <strong className="font-medium">Alt+C</strong> and{' '}
-          <strong className="font-medium">Alt+V</strong> do the same, for the hand that reaches for those.
-          Only onto a cell of the same kind: a <strong className="font-medium">Text &amp; pictures</strong>{' '}
-          cell goes onto another one of those, and a copy offered to a column of another kind says so
-          rather than arriving half there. The copy holds between tables until the tab is closed, and the
-          pictures come across as the same files rather than as second copies of them. A snip pasted
-          straight onto a picture cell still works — the keystroke is only taken when there is a copied
-          cell that column could hold.
+          Several cells are selected by <strong className="font-medium">dragging across them</strong>, by{' '}
+          <strong className="font-medium">Shift</strong> with the arrows, or by holding{' '}
+          <strong className="font-medium">Shift</strong> and clicking the far corner. Dragging inside one
+          cell still selects the words in it, as it always did.{' '}
+          <strong className="font-medium">Esc</strong> lets go of the block before it lets go of the cell,
+          and <strong className="font-medium">Delete</strong> empties every cell in it at once — the words
+          only, the pictures and the writing stay.
+        </p>
+
+        <p>
+          <strong className="font-medium">Ctrl+C</strong> takes a copy of whatever is selected — one cell or
+          a block of them — and of the whole of each: what it says with its formatting, the pictures under
+          it and the page written about it. <strong className="font-medium">Ctrl+V</strong> puts it down
+          from the cell the cursor is on, across and down, over whatever was there.{' '}
+          <strong className="font-medium">Alt+C</strong> and <strong className="font-medium">Alt+V</strong>{' '}
+          do the same, for the hand that reaches for those. Only into columns of the same kinds: a{' '}
+          <strong className="font-medium">Text &amp; pictures</strong> cell goes onto another one of those,
+          and a copy offered to a column of another kind says so rather than arriving half there. A block
+          reaching past the edge of the table stops there and says how much went down. The copy holds
+          between tables until the tab is closed, it goes to the machine&apos;s own clipboard as well — so a
+          block can be pasted straight into a spreadsheet — and the pictures come across as the same files
+          rather than as second copies of them. A snip pasted straight onto a picture cell still works: the
+          keystroke is only taken when there is a copy that column could hold.
         </p>
 
         <p>

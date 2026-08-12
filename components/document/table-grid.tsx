@@ -38,6 +38,7 @@ import {
   COLUMN_TYPES,
   COLUMN_TYPE_LABELS,
   CellContents,
+  CellWrite,
   Column,
   ColumnType,
   MAX_CELL_IMAGES,
@@ -65,7 +66,7 @@ import {
   moveColumn,
   picksFromList,
   setCell,
-  setCellContents,
+  setCellsContents,
   updateColumn,
   visibleRows,
 } from '@/lib/documents';
@@ -97,6 +98,28 @@ const LINE = 'border-black/10 dark:border-white/10';
 interface Cursor {
   rowId: string;
   columnId: string;
+}
+
+/**
+ * The rectangle of cells that is selected, as places in the grid **as it is
+ * currently shown** rather than as ids.
+ *
+ * Ids are right for the cursor, which has to follow its row under a sort; a
+ * block is the opposite. It is the shape on the screen — the six cells under
+ * the pointer — and a sort that moves one of its rows away has not moved the
+ * selection with it. Held as its two corners, worked out afresh every render
+ * from the cursor and the corner it was drawn from.
+ */
+interface Block {
+  top: number;
+  left: number;
+  bottom: number;
+  right: number;
+}
+
+/** How many cells a block covers. */
+function blockSize(block: Block): number {
+  return (block.bottom - block.top + 1) * (block.right - block.left + 1);
 }
 
 /** The cell whose panel is open, and where on the screen to open it against. */
@@ -546,9 +569,12 @@ function GridCell({
   row,
   column,
   active,
+  selected,
   draft,
   panelOpen,
   onSelect,
+  onDragFrom,
+  onDragTo,
   onBeginEdit,
   onDraft,
   onKeyDown,
@@ -562,12 +588,19 @@ function GridCell({
   row: Row;
   column: Column;
   active: boolean;
+  /** In the selected block, but not the cell the cursor is on. */
+  selected: boolean;
   /** Non-null while this cell is the one being typed into. */
   draft: string | null;
   /** Whether this cell's own panel — the note editor, the list of choices —
    *  is open over the page, which is where the keyboard is while it is. */
   panelOpen: boolean;
-  onSelect: () => void;
+  /** `extend` is Shift held: the block reaches here rather than starting here. */
+  onSelect: (extend: boolean) => void;
+  /** The button gone down on this cell — where a block would be drawn from. */
+  onDragFrom: () => void;
+  /** The pointer arrived here with the button still down. */
+  onDragTo: () => void;
   /** The rect goes with it: a picture cell opens a panel against itself. */
   onBeginEdit: (initial: string | undefined, rect: DOMRect | null) => void;
   onDraft: (next: string) => void;
@@ -690,7 +723,16 @@ function GridCell({
         // table itself does not turn round — the columns stay in the order they
         // were made, and the row numbers stay where they were.
         dir="auto"
-        onClick={onSelect}
+        onClick={(event) => onSelect(event.shiftKey)}
+        // Where a drag would be drawn from, and where one already going passes
+        // through. Neither touches the words under the pointer: a drag that
+        // stays inside this cell is somebody selecting a sentence, and only the
+        // pointer *leaving* for another cell makes it a block — which is a
+        // decision the grid makes, not this.
+        onMouseDown={onDragFrom}
+        onMouseEnter={(event) => {
+          if (event.buttons === 1) onDragTo();
+        }}
         onDoubleClick={() => onBeginEdit(undefined, box.current?.getBoundingClientRect() ?? null)}
         onKeyDown={(event) => onKeyDown(event, () => value)}
         // A snip can go straight onto the cell it belongs in without opening
@@ -720,7 +762,13 @@ function GridCell({
         } ${type === 'number' ? 'text-right tabular-nums' : ''} ${type === 'check' ? 'text-center' : ''} ${
           active
             ? 'bg-[#FF4D8E]/[0.06] ring-2 ring-inset ring-[#FF4D8E]'
-            : 'hover:bg-black/[0.03] dark:hover:bg-white/[0.05]'
+            : selected
+              ? // The rest of the block is tinted and the cursor's cell is not,
+                // which is the opposite way round from what it sounds: the
+                // cursor has the ring, and a cell that is both ringed and
+                // tinted is the one it is hardest to find in a filled block.
+                'bg-[#FF4D8E]/[0.14]'
+              : 'hover:bg-black/[0.03] dark:hover:bg-white/[0.05]'
         }`}
       >
         {/* A non-breaking space so an empty cell is still a full line tall and
@@ -879,23 +927,129 @@ function RowMenu({
 /* -------------------------------------------------------------------------- */
 
 /**
- * The cell last copied with Alt+C, waiting to be put down with Alt+V.
+ * A rectangle of cells taken up together — one cell, or a hundred.
+ *
+ * One shape for both, rather than a cell and a block being two things that
+ * behave nearly alike: a single cell is a rectangle one row tall and one column
+ * wide, and everything from here down is written once.
+ */
+interface Copied {
+  /** The type of each column of the block, left to right. The whole of the
+   *  rule about where a copy may land is in this list. */
+  columns: ColumnType[];
+  /** The cells themselves — a row of them per row of the block. */
+  cells: CellContents[][];
+}
+
+/**
+ * The cells last copied with Ctrl+C, waiting to be put down with Ctrl+V.
  *
  * A module variable rather than state, and rather than storage. Not state
  * because this grid is mounted afresh on the way into full screen and on the
  * way out — the same workspace drawn in a different tree — and a copy taken on
- * the page should still be there inside it. Not storage because a cell on its
- * way from one row to another is not part of any table: it is where the hand
- * is, and it belongs to this tab and this visit, exactly as the Drive token
- * does. Nothing renders from it, so nothing needs telling when it changes.
+ * the page should still be there inside it. Not storage because cells on their
+ * way from one part of a table to another are not part of any table: they are
+ * where the hand is, and they belong to this tab and this visit, exactly as the
+ * Drive token does. Nothing renders from it, so nothing needs telling when it
+ * changes.
  *
- * The type it came from is held beside the contents because that is the whole
- * of the rule: a copy goes into a column of the same kind or it goes nowhere.
- * A `Text & pictures` cell put into a plain `Text` column would leave its
- * screenshots behind with nothing on the screen to say so, and a paragraph put
- * into a `Number` column would be a cell nothing could sort.
+ * The types are held beside the cells because that is the whole of the rule: a
+ * copy goes into columns of its own kinds or it goes nowhere. A `Text &
+ * pictures` cell put into a plain `Text` column would leave its screenshots
+ * behind with nothing on the screen to say so, and a paragraph put into a
+ * `Number` column would be a cell nothing could sort. For a block that is asked
+ * column by column, in order: the shapes have to line up, not just the cells.
  */
-let copied: { type: ColumnType; contents: CellContents } | null = null;
+let copied: Copied | null = null;
+
+/**
+ * A cell on its way to the *system* clipboard, where it is one field of a
+ * table rather than a string on its own.
+ *
+ * Tabs between the cells of a row and newlines between the rows is what every
+ * spreadsheet reads, so a block copied here can be pasted straight into one —
+ * but a text cell holds lines of its own, and a cell holding a newline would
+ * arrive there as two rows. Quoting it, and doubling any quotes inside it, is
+ * the same convention those spreadsheets write back out, so this is the rule
+ * they already know how to undo.
+ */
+function quoteForClipboard(value: string): string {
+  return /["\t\n\r]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+}
+
+/**
+ * The whole block as the clipboard should have it. A single cell goes out as
+ * the bare string it is — untouched, quotes and tabs and all — because a cell
+ * copied into a text editor is a string somebody wants back exactly, and there
+ * is no table around it for the quoting to be undone by.
+ */
+function asClipboardText(copy: Copied): string {
+  const only = copy.cells.length === 1 && copy.columns.length === 1;
+  if (only) return copy.cells[0][0].value;
+
+  return copy.cells
+    .map((line) => line.map((cell) => quoteForClipboard(cell.value)).join('\t'))
+    .join('\n');
+}
+
+/** `3 rows`, `1 column`. */
+function count(many: number, one: string): string {
+  return `${many} ${one}${many === 1 ? '' : 's'}`;
+}
+
+/**
+ * What a copy is said to be once it has been taken, since nothing else on the
+ * screen changes when cells are copied — and the sentence carries the other
+ * half of the keystroke, which is where anybody who has just found Ctrl+C
+ * needs it.
+ *
+ * One cell says what came *with* it: its pictures and its writing are invisible
+ * on the way across, and a person who does not know they were carried is a
+ * person who will not know they were overwritten. A block says how big it is,
+ * which is the thing you check before putting it down, and then says the same
+ * about the pictures and the writing in one breath rather than per cell.
+ */
+function describeCopy(copy: Copied): string {
+  const down = copy.cells.length;
+  const across = copy.columns.length;
+
+  if (down === 1 && across === 1) {
+    const only = copy.cells[0][0];
+    const pictures = only.images.length;
+    const extras = [
+      pictures === 0 ? '' : pictures === 1 ? 'its picture' : `its ${pictures} pictures`,
+      only.note.trim() ? 'what is written about it' : '',
+    ].filter(Boolean);
+
+    const what =
+      extras.length === 0
+        ? 'this cell'
+        : extras.length === 1
+          ? `this cell and ${extras[0]}`
+          : `this cell, ${extras[0]} and ${extras[1]}`;
+
+    return `Copied ${what}. Ctrl+V puts it on another ${COLUMN_TYPE_LABELS[copy.columns[0]]} cell.`;
+  }
+
+  const flat = copy.cells.flat();
+  const carried = [
+    flat.some((cell) => cell.images.length > 0) ? 'the pictures' : '',
+    flat.some((cell) => cell.note.trim() !== '') ? 'the writing' : '',
+  ].filter(Boolean);
+
+  // Whichever of the two is there leads the sentence, so the capital goes on
+  // afterwards rather than being written into either.
+  const said = carried.join(' and ');
+  const also =
+    carried.length === 0
+      ? ''
+      : ` ${said[0].toUpperCase()}${said.slice(1)} come${carried.length === 1 ? 's' : ''} with them.`;
+
+  return (
+    `Copied ${count(down * across, 'cell')} — ${count(down, 'row')} by ${count(across, 'column')}.` +
+    ` Ctrl+V puts them down from the cell the cursor is on, across and down.${also}`
+  );
+}
 
 /** A line under the table: something refused, or something done. Refusals are
  *  red; a copy taken is not a warning and should not be dressed as one. */
@@ -923,6 +1077,16 @@ export function TableGrid({
   const columns = table.columns;
 
   const [cursor, setCursor] = useState<Cursor | null>(null);
+  /**
+   * The far corner of the selection, when more than one cell is selected.
+   *
+   * The cursor is always the near one, so the two together are the block, and
+   * `null` means the selection is the single cell the cursor is on. Keeping it
+   * beside the cursor rather than replacing it is what lets everything else in
+   * this file go on asking where the cursor is: typing, opening a panel and
+   * moving all still happen at one cell, whatever is selected around it.
+   */
+  const [corner, setCorner] = useState<Cursor | null>(null);
   const [draft, setDraft] = useState<string | null>(null);
   const [note, setNote] = useState<OpenNote | null>(null);
   /** The cell whose choices are open, and the column whose list is. */
@@ -959,16 +1123,22 @@ export function TableGrid({
     [columns, widthOf]
   );
 
+  /**
+   * The cursor put on a cell. `extend` keeps the far corner where it is —
+   * drawing a block out from wherever the cursor already was — and anything
+   * else drops it, so the next block starts here.
+   */
   const at = useCallback(
-    (rowIndex: number, columnIndex: number) => {
+    (rowIndex: number, columnIndex: number, extend?: boolean) => {
       const row = rows[rowIndex];
       const column = columns[columnIndex];
       if (!row || !column) return;
 
       setDraft(null);
+      setCorner((was) => (extend ? (was ?? cursor) : null));
       setCursor({ rowId: row.id, columnId: column.id });
     },
-    [columns, rows]
+    [columns, cursor, rows]
   );
 
   /** Where the cursor is in the grid as it is currently shown. */
@@ -979,6 +1149,77 @@ export function TableGrid({
     const columnIndex = columns.findIndex((column) => column.id === cursor.columnId);
     return rowIndex === -1 || columnIndex === -1 ? null : { rowIndex, columnIndex };
   }, [columns, cursor, rows]);
+
+  /**
+   * What is selected: the rectangle between the cursor and the far corner, or
+   * the one cell the cursor is on when there is no corner.
+   *
+   * A corner whose row has been filtered away, or whose column has been
+   * deleted, is no corner at all — the block falls back to the single cell
+   * rather than to a rectangle reaching somewhere that is no longer on screen.
+   */
+  const block = useMemo<Block | null>(() => {
+    if (!position) return null;
+
+    const far = corner
+      ? {
+          rowIndex: rows.findIndex((row) => row.id === corner.rowId),
+          columnIndex: columns.findIndex((column) => column.id === corner.columnId),
+        }
+      : null;
+    const other = far && far.rowIndex !== -1 && far.columnIndex !== -1 ? far : position;
+
+    return {
+      top: Math.min(position.rowIndex, other.rowIndex),
+      bottom: Math.max(position.rowIndex, other.rowIndex),
+      left: Math.min(position.columnIndex, other.columnIndex),
+      right: Math.max(position.columnIndex, other.columnIndex),
+    };
+  }, [columns, corner, position, rows]);
+
+  /**
+   * The cell a drag started on, held without touching state.
+   *
+   * A block is drawn by dragging across the cells, which is how anybody who has
+   * met a spreadsheet expects to select several — but a drag that stays inside
+   * one cell is somebody selecting *words*, and those are theirs: Ctrl+C on a
+   * selection copies the selection, deliberately. So the drag only becomes a
+   * block once the pointer has left the cell it went down on, and until then
+   * nothing here has happened at all. That is also why this is a ref: setting
+   * the cursor on `mousedown` would move focus mid-gesture and take the
+   * half-made text selection with it.
+   */
+  const dragFrom = useRef<Cursor | null>(null);
+
+  useEffect(() => {
+    const stop = () => {
+      dragFrom.current = null;
+    };
+
+    // On the window rather than on the cells: a drag very often ends with the
+    // button let go outside the table, and a drag that never ends would make
+    // the next pointer move across the grid draw a block out of nowhere.
+    window.addEventListener('mouseup', stop);
+    return () => window.removeEventListener('mouseup', stop);
+  }, []);
+
+  /** The pointer arriving on a cell with the button still down: the block
+   *  follows it. */
+  const dragTo = useCallback((rowId: string, columnId: string) => {
+    const from = dragFrom.current;
+    if (!from) return;
+    if (from.rowId === rowId && from.columnId === columnId) return;
+
+    // The words picked up on the way across are not what was meant — the
+    // pointer has left the cell it went down on, so this is a block being drawn
+    // rather than a sentence being selected, and leaving the highlight behind
+    // would have Ctrl+C copy that instead.
+    window.getSelection()?.removeAllRanges();
+
+    setDraft(null);
+    setCorner(from);
+    setCursor({ rowId, columnId });
+  }, []);
 
   /**
    * The cell whose panel is open, looked up afresh every render. The panel is
@@ -1022,24 +1263,34 @@ export function TableGrid({
   }, [columns, list]);
 
   const move = useCallback(
-    (downBy: number, acrossBy: number) => {
+    (downBy: number, acrossBy: number, extend?: boolean) => {
       if (!position) return;
+
+      let rowIndex = position.rowIndex + downBy;
+      let columnIndex = position.columnIndex + acrossBy;
 
       // Across the end of a row and on to the start of the next, the way Tab
       // reads a form: a table filled in left to right should not stop at the
       // right-hand edge and make you reach for the mouse.
-      let rowIndex = position.rowIndex + downBy;
-      let columnIndex = position.columnIndex + acrossBy;
-
-      if (columnIndex < 0) {
-        columnIndex = columns.length - 1;
-        rowIndex -= 1;
-      } else if (columnIndex >= columns.length) {
-        columnIndex = 0;
-        rowIndex += 1;
+      //
+      // Not while a block is being drawn out. A rectangle cannot wrap — there
+      // is no such shape — so Shift+Right against the last column means "as far
+      // as it goes" and stops there.
+      if (!extend) {
+        if (columnIndex < 0) {
+          columnIndex = columns.length - 1;
+          rowIndex -= 1;
+        } else if (columnIndex >= columns.length) {
+          columnIndex = 0;
+          rowIndex += 1;
+        }
       }
 
-      at(Math.max(0, Math.min(rows.length - 1, rowIndex)), Math.max(0, Math.min(columns.length - 1, columnIndex)));
+      at(
+        Math.max(0, Math.min(rows.length - 1, rowIndex)),
+        Math.max(0, Math.min(columns.length - 1, columnIndex)),
+        extend
+      );
     },
     [at, columns.length, position, rows.length]
   );
@@ -1057,6 +1308,10 @@ export function TableGrid({
       const stored = row ? cellValue(row, columnId) : '';
       const column = columns.find((each) => each.id === columnId);
 
+      // Writing happens at one cell, so a block being written into is a block
+      // no longer selected: the highlight would go on saying six cells were
+      // about to be acted on while the keyboard was in one of them.
+      setCorner(null);
       setCursor({ rowId, columnId });
 
       // A tick box has nothing to open: the box is the whole of the cell, and
@@ -1103,104 +1358,201 @@ export function TableGrid({
   }, [table.id]);
 
   /**
-   * A whole cell taken up: what it says, the pictures under it and the page
-   * written about it. Only a copy of the strings — the pictures are the file
-   * names, so nothing is written to the folder until it is put down, and not
-   * even then.
+   * Everything the selected block holds, taken up together: what each cell
+   * says, the pictures under it and the page written about it. Only a copy of
+   * the strings — the pictures are the file names, so nothing is written to the
+   * folder until they are put down, and not even then.
    */
-  const copyCell = useCallback(
-    (rowId: string, column: Column) => {
-      // Read afresh rather than from the rows this render was given: the
-      // button in the note panel commits what has just been typed and asks for
-      // the copy in the same breath, and the props here are one render behind
-      // that write.
-      const row = getTable(table.id)?.rows.find((each) => each.id === rowId);
-      if (!row) return;
+  const copyBlock = useCallback(
+    (only?: Cursor) => {
+      // Read afresh rather than from the rows this render was given: the button
+      // in the note panel commits what has just been typed and asks for the
+      // copy in the same breath, and the props here are one render behind that
+      // write.
+      const stored = getTable(table.id);
+      if (!stored) return;
 
-      const contents = cellContents(row, column.id);
-      copied = { type: column.type, contents };
+      // One named cell — the button in the note panel — or whatever is
+      // selected. Both come out as a rectangle; the one cell is simply a
+      // rectangle of one.
+      const corners: Block | null = only
+        ? (() => {
+            const rowIndex = rows.findIndex((row) => row.id === only.rowId);
+            const columnIndex = columns.findIndex((column) => column.id === only.columnId);
+            return rowIndex === -1 || columnIndex === -1
+              ? null
+              : { top: rowIndex, bottom: rowIndex, left: columnIndex, right: columnIndex };
+          })()
+        : block;
+      if (!corners) return;
 
-      // The words go to the system clipboard as well, so a cell copied with
+      const within = columns.slice(corners.left, corners.right + 1);
+      const cells: CellContents[][] = [];
+
+      for (let down = corners.top; down <= corners.bottom; down += 1) {
+        const shown = rows[down];
+        const row = shown && stored.rows.find((each) => each.id === shown.id);
+        if (!row) return;
+
+        cells.push(within.map((column) => cellContents(row, column.id)));
+      }
+
+      const copy: Copied = { columns: within.map((column) => column.type), cells };
+      copied = copy;
+
+      // The words go to the system clipboard as well, so what is copied with
       // Ctrl+C can be put into anything else on the machine — a keystroke that
       // left the clipboard untouched would be a keystroke that had half
-      // happened. The stored string, markers and all, since that is what
+      // happened. The stored strings, markers and all, since that is what
       // another cell would want back. A refusal — an unfocused document, a
       // browser that will not — is not worth a word: the copy that matters is
       // the one above it, and it has already been taken.
-      void navigator.clipboard?.writeText(contents.value).catch(() => {});
+      void navigator.clipboard?.writeText(asClipboardText(copy)).catch(() => {});
 
-      const pictures = contents.images.length;
-      const extras = [
-        pictures === 0 ? '' : pictures === 1 ? 'its picture' : `its ${pictures} pictures`,
-        contents.note.trim() ? 'what is written about it' : '',
-      ].filter(Boolean);
-
-      // Said out loud, because nothing else on the screen changes when a cell
-      // is copied — and the sentence carries the other half of the keystroke,
-      // which is where anybody who has just found Alt+C needs it.
-      const what =
-        extras.length === 0
-          ? 'this cell'
-          : extras.length === 1
-            ? `this cell and ${extras[0]}`
-            : `this cell, ${extras[0]} and ${extras[1]}`;
-
-      setNotice({
-        text: `Copied ${what}. Ctrl+V puts it on another ${COLUMN_TYPE_LABELS[column.type]} cell.`,
-      });
+      setNotice({ text: describeCopy(copy) });
     },
-    [table.id]
+    [block, columns, rows, table.id]
   );
 
   /**
-   * The copy put down on another cell, replacing what was there.
+   * The copy put down from the cursor, across and down, replacing what it
+   * lands on.
    *
-   * Only onto a column of the same kind. That is not fussiness: a cell of
-   * screenshots dropped into a plain text column would leave the pictures
-   * behind with nothing on the screen to say where they went, and a paragraph
-   * dropped into a number column would be a cell the column could not sort.
-   * The refusal says both types rather than doing nothing, since a keystroke
-   * that quietly does nothing reads as a keystroke that is broken.
+   * Only into columns of the same kinds, asked column by column. That is not
+   * fussiness: a cell of screenshots dropped into a plain text column would
+   * leave the pictures behind with nothing on the screen to say where they
+   * went, and a paragraph dropped into a number column would be a cell the
+   * column could not sort. It is all or nothing — half a block put down, the
+   * columns that matched and not the ones that did not, is a table nobody could
+   * put back. The refusal names the column and both types rather than doing
+   * nothing, since a keystroke that quietly does nothing reads as a broken one.
+   *
+   * What runs past the last row or the last column is left off rather than
+   * refused, and the footnote says so. Nothing is added to make room: a paste
+   * that grew the table by forty rows because the copy was taken near the
+   * bottom is a worse surprise than a paste that stopped at the edge.
    */
-  const pasteCell = useCallback(
-    (rowId: string, column: Column) => {
-      const carried = copied;
+  const pasteBlock = useCallback(() => {
+    const carried = copied;
 
-      if (!carried) {
-        setNotice({
-          text: 'No cell has been copied yet — Ctrl+C takes a copy of the cell the cursor is on.',
-          wrong: true,
-        });
-        return;
+    if (!carried) {
+      setNotice({
+        text: 'Nothing has been copied yet — Ctrl+C takes a copy of the cell the cursor is on, or of the block that is selected.',
+        wrong: true,
+      });
+      return;
+    }
+
+    if (!block) return;
+
+    const { top, left } = block;
+    const down = Math.min(carried.cells.length, rows.length - top);
+    const across = Math.min(carried.columns.length, columns.length - left);
+    if (down <= 0 || across <= 0) return;
+
+    for (let step = 0; step < across; step += 1) {
+      const target = columns[left + step];
+      if (target.type === carried.columns[step]) continue;
+
+      setNotice({
+        text: `That copy holds a ${COLUMN_TYPE_LABELS[carried.columns[step]]} column where “${
+          target.name
+        }” holds ${COLUMN_TYPE_LABELS[target.type]}. Cells go into columns of their own kind or nowhere${
+          across > 1 ? ', and a block goes down whole or not at all' : ''
+        }.`,
+        wrong: true,
+      });
+      return;
+    }
+
+    const stored = getTable(table.id);
+    if (!stored) return;
+
+    const writes: CellWrite[] = [];
+    // What the cells being written over were holding, gathered before the write
+    // and swept after it, exactly as a deleted row's pictures are: a file the
+    // copy itself still points at — or another cell, or a post — is seen to be
+    // wanted and stays in the folder.
+    const had: string[] = [];
+    const kept = new Set<string>();
+
+    for (let step = 0; step < down; step += 1) {
+      const shown = rows[top + step];
+      const row = shown && stored.rows.find((each) => each.id === shown.id);
+      if (!row) continue;
+
+      for (let sideways = 0; sideways < across; sideways += 1) {
+        const column = columns[left + sideways];
+        const contents = carried.cells[step][sideways];
+
+        had.push(...cellImages(row, column.id));
+        for (const name of contents.images) kept.add(name);
+
+        writes.push({ rowId: row.id, columnId: column.id, contents });
       }
+    }
 
-      if (carried.type !== column.type) {
-        setNotice({
-          text: `That copy came off a ${COLUMN_TYPE_LABELS[carried.type]} column and this one holds ${
-            COLUMN_TYPE_LABELS[column.type]
-          }. A cell goes into a column of its own kind or nowhere.`,
-          wrong: true,
-        });
-        return;
-      }
-
-      const row = getTable(table.id)?.rows.find((each) => each.id === rowId);
-      if (!row) return;
-
-      // What this cell was holding, gathered before the write and swept after
-      // it, exactly as a deleted row's pictures are: a file the copy itself
-      // still points at — or another cell, or a post — is seen to be wanted and
-      // stays in the folder.
-      const had = cellImages(row, column.id);
-      if (!setCellContents(table.id, rowId, column.id, carried.contents)) return;
-
-      const dropped = had.filter((name) => !carried.contents.images.includes(name));
-      if (dropped.length > 0) void discardTableImages(dropped);
-
+    // The whole block in one write: several rows written one at a time would be
+    // several events, and every view listening would draw the table half
+    // pasted on the way through.
+    if (!setCellsContents(table.id, writes)) {
       setNotice(null);
-    },
-    [table.id]
-  );
+      return;
+    }
+
+    const dropped = had.filter((name) => !kept.has(name));
+    if (dropped.length > 0) void discardTableImages(dropped);
+
+    // What was put down is what is now selected, so it can be seen at a glance
+    // and moved on again without being drawn out a second time.
+    const last = rows[top + down - 1];
+    setCorner(down > 1 || across > 1 ? { rowId: last.id, columnId: columns[left + across - 1].id } : null);
+    setCursor({ rowId: rows[top].id, columnId: columns[left].id });
+
+    const clipped = down < carried.cells.length || across < carried.columns.length;
+    setNotice(
+      clipped
+        ? {
+            text: `The copy reached past the edge of the table, so ${count(
+              down * across,
+              'cell'
+            )} of it went down and the rest was left off.`,
+          }
+        : null
+    );
+  }, [block, columns, rows, table.id]);
+
+  /**
+   * The selected cells emptied. Only the words: the pictures under a cell and
+   * the page written about it stay, which is what Delete on one cell has always
+   * done — and a keystroke that swept away four screenshots without a word
+   * would be a keystroke nobody could risk pressing.
+   */
+  const clearBlock = useCallback(() => {
+    if (!block) return;
+
+    const stored = getTable(table.id);
+    if (!stored) return;
+
+    const writes: CellWrite[] = [];
+
+    for (let down = block.top; down <= block.bottom; down += 1) {
+      const shown = rows[down];
+      const row = shown && stored.rows.find((each) => each.id === shown.id);
+      if (!row) continue;
+
+      for (let across = block.left; across <= block.right; across += 1) {
+        const column = columns[across];
+        writes.push({
+          rowId: row.id,
+          columnId: column.id,
+          contents: { ...cellContents(row, column.id), value: '' },
+        });
+      }
+    }
+
+    setCellsContents(table.id, writes);
+  }, [block, columns, rows, table.id]);
 
   const keysWhileSelected = useCallback(
     (event: React.KeyboardEvent, rowId: string, column: Column, active: boolean) => {
@@ -1208,7 +1560,14 @@ export function TableGrid({
 
       if (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight') {
         event.preventDefault();
-        move(key === 'ArrowDown' ? 1 : key === 'ArrowUp' ? -1 : 0, key === 'ArrowRight' ? 1 : key === 'ArrowLeft' ? -1 : 0);
+        // With Shift held the cursor still moves and the far corner stays put,
+        // which is what draws a block out from the keyboard — the same gesture
+        // as dragging across the cells, for the hand that is not on the mouse.
+        move(
+          key === 'ArrowDown' ? 1 : key === 'ArrowUp' ? -1 : 0,
+          key === 'ArrowRight' ? 1 : key === 'ArrowLeft' ? -1 : 0,
+          event.shiftKey
+        );
         return;
       }
 
@@ -1234,27 +1593,31 @@ export function TableGrid({
       if (held && letterPressed(event, 'KeyC', 'c')) {
         // Words dragged out with the mouse belong to the browser's own copy:
         // somebody who has selected half a sentence means that half, not the
-        // cell around it. Only an empty selection means "this cell".
-        const selection = window.getSelection();
-        if (selection && !selection.isCollapsed && selection.toString().trim() !== '') return;
+        // cell around it. Only asked of a single cell — a block drawn across
+        // several is unmistakably about the cells, and drawing one clears the
+        // highlight anyway.
+        if (!block || blockSize(block) === 1) {
+          const selection = window.getSelection();
+          if (selection && !selection.isCollapsed && selection.toString().trim() !== '') return;
+        }
 
         event.preventDefault();
-        copyCell(rowId, column);
+        copyBlock();
         return;
       }
 
       if (held && letterPressed(event, 'KeyV', 'v')) {
         /* A snip pasted straight onto a picture cell is Ctrl+V too, and that
            is the browser's `paste` event rather than this — so the keystroke
-           is only taken when there is a copy this cell could actually take.
-           With none, it goes through untouched and the snip lands as it
-           always did. Alt+V is answered either way, having no other meaning:
-           it is how the refusal gets said out loud. */
-        const canTake = copied?.type === column.type;
+           is only taken when there is a copy the cell under the cursor could
+           actually start taking. With none, it goes through untouched and the
+           snip lands as it always did. Alt+V is answered either way, having no
+           other meaning: it is how the refusal gets said out loud. */
+        const canTake = copied?.columns[0] === column.type;
         if (!canTake && !event.altKey) return;
 
         event.preventDefault();
-        pasteCell(rowId, column);
+        pasteBlock();
         return;
       }
 
@@ -1276,17 +1639,25 @@ export function TableGrid({
 
       if (key === 'Backspace' || key === 'Delete') {
         event.preventDefault();
-        setCell(table.id, rowId, column.id, '');
+        clearBlock();
         return;
       }
 
       if (key === 'Escape') {
-        // One thing at a time: this Escape lets go of the cell, and only the
-        // next one reaches the page and leaves full screen. The cell gives up
-        // the keyboard as it goes — a cell still holding focus after being let
-        // go of would swallow every Escape after this one.
+        // One thing at a time: this Escape lets go of the block, the next lets
+        // go of the cell, and only the one after that reaches the page and
+        // leaves full screen.
         if (!active) return;
 
+        if (block && blockSize(block) > 1) {
+          event.stopPropagation();
+          setCorner(null);
+          return;
+        }
+
+        // The cell gives up the keyboard as it goes — a cell still holding
+        // focus after being let go of would swallow every Escape after this
+        // one.
         event.stopPropagation();
         (event.currentTarget as HTMLElement).blur();
         setCursor(null);
@@ -1318,7 +1689,7 @@ export function TableGrid({
         beginEdit(rowId, column.id, key, event.currentTarget.getBoundingClientRect());
       }
     },
-    [beginEdit, copyCell, move, pasteCell, table.id]
+    [beginEdit, block, clearBlock, copyBlock, move, pasteBlock, table.id]
   );
 
   /**
@@ -1548,7 +1919,7 @@ export function TableGrid({
                   </div>
                 </td>
 
-                {columns.map((column) => {
+                {columns.map((column, columnIndex) => {
                   const active = cursor?.rowId === row.id && cursor.columnId === column.id;
 
                   return (
@@ -1557,6 +1928,14 @@ export function TableGrid({
                       row={row}
                       column={column}
                       active={active}
+                      selected={
+                        !active &&
+                        !!block &&
+                        rowIndex >= block.top &&
+                        rowIndex <= block.bottom &&
+                        columnIndex >= block.left &&
+                        columnIndex <= block.right
+                      }
                       draft={active ? draft : null}
                       panelOpen={
                         (note?.rowId === row.id && note.columnId === column.id) ||
@@ -1564,10 +1943,22 @@ export function TableGrid({
                         (about?.rowId === row.id && about.columnId === column.id)
                       }
                       label={`${column.name}, row ${rowIndex + 1}`}
-                      onSelect={() => {
+                      onSelect={(extend) => {
                         setDraft(null);
+                        // Shift+click reaches from wherever the cursor already
+                        // is to here, which is how a block of forty rows is
+                        // selected without dragging the length of the table.
+                        // The browser has meanwhile highlighted every word
+                        // between the two, which is its own idea of what Shift
+                        // means and would be what Ctrl+C copied.
+                        if (extend) window.getSelection()?.removeAllRanges();
+                        setCorner((was) => (extend ? (was ?? cursor) : null));
                         setCursor({ rowId: row.id, columnId: column.id });
                       }}
+                      onDragFrom={() => {
+                        dragFrom.current = { rowId: row.id, columnId: column.id };
+                      }}
+                      onDragTo={() => dragTo(row.id, column.id)}
                       onPasteImage={(blob) => void pasteImage(row, column.id, blob)}
                       onViewImage={(names, at) => setViewing({ names, at })}
                       onToggleTick={() => toggleTick(table.id, row.id, column.id)}
@@ -1576,6 +1967,7 @@ export function TableGrid({
                         // closing it should leave the keyboard where the writing
                         // was rather than wherever it was three rows ago.
                         setDraft(null);
+                        setCorner(null);
                         setCursor({ rowId: row.id, columnId: column.id });
                         setAbout({ rowId: row.id, columnId: column.id, anchor });
                       }}
@@ -1630,7 +2022,7 @@ export function TableGrid({
           column={openNote.column}
           anchor={openNote.anchor}
           onView={(names, at) => setViewing({ names, at })}
-          onCopy={() => copyCell(openNote.row.id, openNote.column)}
+          onCopy={() => copyBlock({ rowId: openNote.row.id, columnId: openNote.column.id })}
           onClose={() => setNote(null)}
         />
       )}
