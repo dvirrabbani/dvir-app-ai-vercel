@@ -359,12 +359,20 @@ order, which is the only order there is — a sort is a way of looking at the ro
 and `visibleRows` never rearranges them — so a row put under the one you are
 looking at while a sort is on appears wherever that sort puts it. The footnote
 says so while a sort is on rather than the menu refusing, since the row does go
-where it was asked to go. The row's menu is `position: fixed` against the button
-that opened it, like the note panel and the list of choices: drawn inside the
-scroll box it would be cut off on every row near the bottom. Its button carries
-`data-row-menu` so the menu's own click-away can tell a click on the trigger
-apart from a click elsewhere — closing on that mousedown would only have the
-click reopen it, and the toggle would never shut. `NUMBER_COLUMN_WIDTH` is sized
+where it was asked to go. **Both** menus are `position: fixed` against the button
+that opened them, like the note panel and the list of choices: drawn inside the
+scroll box they are cut off by its edge — the row's on every row near the bottom,
+and the heading's always, it being taller than the box is on a short window and
+everything from the filter down therefore unreachable. The heading's is also
+capped at the room there actually is below the button — above it, when there is
+genuinely more room that way — and scrolls inside itself, since seven types, the
+list, the filter, the two inserts, the two moves and the bin do not fit under a
+heading on a 500px window whatever it is positioned against. The *row* menu's
+button carries `data-row-menu` so the menu's own click-away can tell a click on
+the trigger apart from a click elsewhere — closing on that mousedown would only
+have the click reopen it, and the toggle would never shut. The heading's needs no
+such mark: it is rendered inside the wrapper its button sits in, so a click in it
+is still `contains`ed even though it is out of flow. `NUMBER_COLUMN_WIDTH` is sized
 for all three of the things in that column at once — the number at three digits
 (a table holds 500 rows), the ⋮ and the bin — rather than for the number, which
 is what left the two buttons hanging over the cell's own border. The `<th>`
