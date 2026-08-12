@@ -43,6 +43,7 @@ import { TableGrid } from '@/components/document/table-grid';
 import {
   DEFAULT_TABLE_COLUMNS,
   DEFAULT_TABLE_ROWS,
+  MAX_CELL_TAGS,
   MAX_COLUMNS,
   MAX_ROWS,
   MAX_TABLES,
@@ -181,6 +182,78 @@ function TableName({ table }: { table: TableDoc }) {
       aria-label="Name of this table"
       className={`min-w-0 flex-1 rounded-lg border border-transparent bg-transparent px-1.5 py-1 text-base font-semibold outline-none transition-colors hover:border-black/10 focus:border-[#FF4D8E]/50 focus:bg-white/70 dark:hover:border-white/10 dark:focus:bg-white/10 ${SOLID} md:text-lg`}
     />
+  );
+}
+
+/**
+ * How the grid is worked, as a section of the page rather than a footnote under
+ * the table. It says the same thing whichever table is open and whatever is in
+ * it, so under the grid it was a paragraph re-read on every switch of tab and
+ * therefore read on none of them — and it sat between the last row and the one
+ * line that is *not* general, the note about the sort and the hidden rows. That
+ * one stays where it is, in `TableGrid`; this is everything true of every table.
+ */
+function HowToUse() {
+  return (
+    <section className="mt-6 max-w-3xl">
+      <h2 className={`mb-2 text-sm font-semibold ${SOLID}`}>Working the table</h2>
+
+      <div className={`space-y-2 text-xs ${MUTED}`}>
+        <p>
+          Click a cell and type. <strong className="font-medium">Enter</strong> goes down and adds a row at
+          the bottom, <strong className="font-medium">Alt+Enter</strong> (or Shift+Enter) breaks the line
+          inside the cell, <strong className="font-medium">Tab</strong> goes across, arrows move,{' '}
+          <strong className="font-medium">Esc</strong> puts back what was there. Drag the line between two
+          headings to resize a column.
+        </p>
+
+        <p>
+          A <strong className="font-medium">Pick from a list</strong> column opens its choices instead — type
+          to find one, or type a new one and press Enter to add it to the list, and the column sorts in the
+          order the list is in. A <strong className="font-medium">Pick several from a list</strong> column is
+          the same list with the menu left open: click a choice to put it on the cell or take it off, up to{' '}
+          {MAX_CELL_TAGS} of them, and Esc when you are done. The tags are kept in the cell itself, separated
+          by commas, so a column already filled in that way becomes chips the moment it is retyped — and
+          filters ask whether a cell <em>has</em> one tag rather than which one it is.
+        </p>
+
+        <p>
+          Every cell in either carries an <strong className="font-medium">ⓘ</strong> beside its chips: it
+          opens a page you can write about that cell on, as long as a post and with the same formatting, and
+          the chips themselves are untouched so the column still sorts and filters by what was picked. It is
+          marked pink once something is written there, and{' '}
+          <strong className="font-medium">Alt+Enter</strong> on the cell opens it.
+        </p>
+
+        <p>
+          A <strong className="font-medium">Text &amp; pictures</strong> column opens a panel instead, and
+          takes a snip pasted straight onto the cell; click a picture in one to read it over the whole page,
+          where it can be shown at full size. Text cells take formatting:{' '}
+          <strong className="font-medium">Ctrl+B</strong> for bold,{' '}
+          <strong className="font-medium">Ctrl+I</strong> for italic,{' '}
+          <strong className="font-medium">Ctrl+Alt+1</strong> for a title, or the buttons under the cell —
+          which write <code className="font-mono">**bold**</code> and{' '}
+          <code className="font-mono"># Title</code> into the cell itself, so nothing is lost by retyping the
+          column.
+        </p>
+
+        <p>
+          <strong className="font-medium">Alt+C</strong> takes a copy of the whole cell the cursor is on —
+          what it says with its formatting, the pictures under it and the page written about it —{' '}
+          and <strong className="font-medium">Alt+V</strong> puts it on another cell, over whatever was
+          there. Only on a cell of the same kind: a <strong className="font-medium">Text &amp; pictures</strong>{' '}
+          cell goes onto another one of those, and a copy offered to a column of another kind says so
+          rather than arriving half there. It is not the browser&rsquo;s clipboard, so it holds between
+          tables and until the tab is closed, and the pictures come across as the same files rather than
+          as second copies of them.
+        </p>
+
+        <p>
+          A row goes in beside another one from the <strong className="font-medium">⋮</strong> beside its
+          number, and a column from the <strong className="font-medium">⋮</strong> in its heading.
+        </p>
+      </div>
+    </section>
   );
 }
 
@@ -589,6 +662,11 @@ export default function DocumentPage() {
             {workspace}
           </section>
         )}
+
+        {/* Only once there is a table to work: with none made yet the empty
+            state is about making one, and a page of keystrokes for cells that
+            do not exist is read past. */}
+        {hydrated && tables.length > 0 && <HowToUse />}
 
         <p className={`mt-6 max-w-3xl text-sm ${MUTED}`}>
           Nothing here is sent anywhere — the tables are in this browser&rsquo;s storage, so they are not on

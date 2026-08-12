@@ -37,10 +37,10 @@ import {
   COLUMN_NAME_MAX_LENGTH,
   COLUMN_TYPES,
   COLUMN_TYPE_LABELS,
+  CellContents,
   Column,
   ColumnType,
   MAX_CELL_IMAGES,
-  MAX_CELL_TAGS,
   MAX_COLUMNS,
   MAX_ROWS,
   MIN_COLUMN_WIDTH,
@@ -51,6 +51,7 @@ import {
   addColumn,
   addFilter,
   addRow,
+  cellContents,
   cellImages,
   cellValue,
   cycleSort,
@@ -63,6 +64,7 @@ import {
   moveColumn,
   picksFromList,
   setCell,
+  setCellContents,
   updateColumn,
   visibleRows,
 } from '@/lib/documents';
@@ -132,6 +134,21 @@ interface OpenList {
  */
 const NUMBER_COLUMN_WIDTH = 84;
 const FILLER_COLUMN_WIDTH = 40;
+
+/**
+ * Whether a keystroke is a given letter, asked of the key's **place** on the
+ * board as well as of what it prints.
+ *
+ * `code` is the one that holds up: Alt+C types "ç" on a Mac and a Hebrew letter
+ * on a Hebrew layout, and the key under the finger is the C key in all three
+ * cases. What it prints is taken as well, because `code` is empty in a few
+ * places a key event can come from — a browser being driven by a test, an
+ * on-screen keyboard — and a shortcut that quietly does nothing there is worse
+ * than one that answers a second name.
+ */
+function letterPressed(event: React.KeyboardEvent, code: string, letter: string): boolean {
+  return event.code === code || event.key.toLowerCase() === letter;
+}
 
 /** A date shown as a day rather than as its key; anything else exactly as typed. */
 function displayCell(value: string, type: ColumnType): string {
@@ -857,6 +874,36 @@ function RowMenu({
 }
 
 /* -------------------------------------------------------------------------- */
+/*  A cell copied onto another                                                */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * The cell last copied with Alt+C, waiting to be put down with Alt+V.
+ *
+ * A module variable rather than state, and rather than storage. Not state
+ * because this grid is mounted afresh on the way into full screen and on the
+ * way out — the same workspace drawn in a different tree — and a copy taken on
+ * the page should still be there inside it. Not storage because a cell on its
+ * way from one row to another is not part of any table: it is where the hand
+ * is, and it belongs to this tab and this visit, exactly as the Drive token
+ * does. Nothing renders from it, so nothing needs telling when it changes.
+ *
+ * The type it came from is held beside the contents because that is the whole
+ * of the rule: a copy goes into a column of the same kind or it goes nowhere.
+ * A `Text & pictures` cell put into a plain `Text` column would leave its
+ * screenshots behind with nothing on the screen to say so, and a paragraph put
+ * into a `Number` column would be a cell nothing could sort.
+ */
+let copied: { type: ColumnType; contents: CellContents } | null = null;
+
+/** A line under the table: something refused, or something done. Refusals are
+ *  red; a copy taken is not a warning and should not be dressed as one. */
+interface Notice {
+  text: string;
+  wrong?: boolean;
+}
+
+/* -------------------------------------------------------------------------- */
 /*  The grid                                                                  */
 /* -------------------------------------------------------------------------- */
 
@@ -886,7 +933,7 @@ export function TableGrid({
   const [rowMenu, setRowMenu] = useState<{ rowId: string; anchor: DOMRect } | null>(null);
   /** The cell's pictures being read over the page, and which of them is up. */
   const [viewing, setViewing] = useState<{ names: string[]; at: number } | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [resizing, setResizing] = useState<{ columnId: string; width: number } | null>(null);
 
   /** What a column is being drawn at: the width under the pointer, or its own. */
@@ -1054,6 +1101,93 @@ export function TableGrid({
     if (id) setCursor((was) => (was ? { ...was, rowId: id } : was));
   }, [table.id]);
 
+  /**
+   * A whole cell taken up: what it says, the pictures under it and the page
+   * written about it. Only a copy of the strings — the pictures are the file
+   * names, so nothing is written to the folder until it is put down, and not
+   * even then.
+   */
+  const copyCell = useCallback(
+    (rowId: string, column: Column) => {
+      const row = rows.find((each) => each.id === rowId);
+      if (!row) return;
+
+      const contents = cellContents(row, column.id);
+      copied = { type: column.type, contents };
+
+      const pictures = contents.images.length;
+      const extras = [
+        pictures === 0 ? '' : pictures === 1 ? 'its picture' : `its ${pictures} pictures`,
+        contents.note.trim() ? 'what is written about it' : '',
+      ].filter(Boolean);
+
+      // Said out loud, because nothing else on the screen changes when a cell
+      // is copied — and the sentence carries the other half of the keystroke,
+      // which is where anybody who has just found Alt+C needs it.
+      const what =
+        extras.length === 0
+          ? 'this cell'
+          : extras.length === 1
+            ? `this cell and ${extras[0]}`
+            : `this cell, ${extras[0]} and ${extras[1]}`;
+
+      setNotice({
+        text: `Copied ${what}. Alt+V puts it on another ${COLUMN_TYPE_LABELS[column.type]} cell.`,
+      });
+    },
+    [rows]
+  );
+
+  /**
+   * The copy put down on another cell, replacing what was there.
+   *
+   * Only onto a column of the same kind. That is not fussiness: a cell of
+   * screenshots dropped into a plain text column would leave the pictures
+   * behind with nothing on the screen to say where they went, and a paragraph
+   * dropped into a number column would be a cell the column could not sort.
+   * The refusal says both types rather than doing nothing, since a keystroke
+   * that quietly does nothing reads as a keystroke that is broken.
+   */
+  const pasteCell = useCallback(
+    (rowId: string, column: Column) => {
+      const carried = copied;
+
+      if (!carried) {
+        setNotice({
+          text: 'Nothing has been copied yet — Alt+C takes a copy of the cell the cursor is on.',
+          wrong: true,
+        });
+        return;
+      }
+
+      if (carried.type !== column.type) {
+        setNotice({
+          text: `That copy came off a ${COLUMN_TYPE_LABELS[carried.type]} column and this one holds ${
+            COLUMN_TYPE_LABELS[column.type]
+          }. A cell goes into a column of its own kind or nowhere.`,
+          wrong: true,
+        });
+        return;
+      }
+
+      const row = rows.find((each) => each.id === rowId);
+      if (!row) return;
+
+      // What this cell was holding, gathered before the write and swept after
+      // it, exactly as a deleted row's pictures are: a file the copy itself
+      // still points at — or another cell, or a post — is seen to be wanted and
+      // stays in the folder.
+      const had = cellImages(row, column.id);
+      if (!setCellContents(table.id, rowId, column.id, carried.contents)) return;
+
+      const dropped = had.filter((name) => !carried.contents.images.includes(name));
+      if (dropped.length > 0) void discardTableImages(dropped);
+
+      setNotice(null);
+    },
+    [rows, table.id]
+  );
+
   const keysWhileSelected = useCallback(
     (event: React.KeyboardEvent, rowId: string, column: Column, active: boolean) => {
       const key = event.key;
@@ -1068,6 +1202,33 @@ export function TableGrid({
         event.preventDefault();
         move(0, event.shiftKey ? -1 : 1);
         return;
+      }
+
+      /* A whole cell copied and put down again — Alt+C and Alt+V.
+
+         Alt rather than the two pairs anybody would reach for first, both of
+         which are already spoken for. Ctrl+Shift+C is the browser's own
+         inspector and cannot be had, the way Ctrl+1 cannot; and plain Ctrl+V
+         has to stay free, because a snip pasted straight onto a picture cell is
+         Ctrl+V and taking that would be a poor trade for a second way to this.
+         Alt is already the modifier for what a cell carries beside its value —
+         Alt+Enter opens the writing behind a chip — so this sits with it.
+
+         Which key is which is `letterPressed`'s business: on a Hebrew layout,
+         and on a Mac where Alt+C types "ç", the C key does not report a "c" at
+         all, and it is still the C key. */
+      if (event.altKey && !event.ctrlKey && !event.metaKey) {
+        if (letterPressed(event, 'KeyC', 'c')) {
+          event.preventDefault();
+          copyCell(rowId, column);
+          return;
+        }
+
+        if (letterPressed(event, 'KeyV', 'v')) {
+          event.preventDefault();
+          pasteCell(rowId, column);
+          return;
+        }
       }
 
       // Enter opens the choices; Alt+Enter opens what is written about the
@@ -1130,7 +1291,7 @@ export function TableGrid({
         beginEdit(rowId, column.id, key, event.currentTarget.getBoundingClientRect());
       }
     },
-    [beginEdit, move, table.id]
+    [beginEdit, copyCell, move, pasteCell, table.id]
   );
 
   /**
@@ -1191,13 +1352,13 @@ export function TableGrid({
   const pasteImage = useCallback(
     async (row: Row, columnId: string, blob: Blob) => {
       if (cellImages(row, columnId).length >= MAX_CELL_IMAGES) {
-        setNotice(`A cell holds ${MAX_CELL_IMAGES} pictures.`);
+        setNotice({ text: `A cell holds ${MAX_CELL_IMAGES} pictures.`, wrong: true });
         return;
       }
 
       const result = await keepPicture(blob);
       if (!result.ok) {
-        setNotice(result.error);
+        setNotice({ text: result.error, wrong: true });
         return;
       }
 
@@ -1509,46 +1670,37 @@ export function TableGrid({
         />
       )}
 
-      {notice && (
-        <p className="mt-2 flex items-start gap-1.5 text-xs text-[#B3261E] dark:text-[#FFB4AB]">
-          <span className="flex-1">{notice}</span>
-          <button type="button" onClick={() => setNotice(null)} className="shrink-0 underline">
-            Dismiss
-          </button>
+      {/* The region itself is always here, empty or not: a live region put into
+          the page at the same moment as its words is a region a screen reader
+          has no reason to read out, and a cell copied says nothing on the
+          screen otherwise. It is empty, so it takes no room. */}
+      <div role="status" aria-live="polite">
+        {notice && (
+          <p
+            className={`mt-2 flex items-start gap-1.5 text-xs ${
+              notice.wrong ? 'text-[#B3261E] dark:text-[#FFB4AB]' : MUTED
+            }`}
+          >
+            <span className="flex-1">{notice.text}</span>
+            <button type="button" onClick={() => setNotice(null)} className="shrink-0 underline">
+              Dismiss
+            </button>
+          </p>
+        )}
+      </div>
+
+      {/* Only what is true of *this* table right now. How the grid is worked is
+          a page of its own further down (`HowToUse` in `app/document/page.tsx`):
+          it is the same on every table and reading it again under each one is
+          how a footnote stops being read at all. */}
+      {(table.sort || hidden > 0) && (
+        <p className={`mt-2 text-xs ${MUTED}`}>
+          {table.sort &&
+            'While a sort is on, the rows are only shown in that order — a row inserted above or below another goes in beside it in the stored order, and may appear elsewhere on the screen.'}
+          {table.sort && hidden > 0 && ' '}
+          {hidden > 0 && `A filter is hiding ${hidden} row${hidden === 1 ? '' : 's'}, and a new row starts empty, so it may be hidden the moment it is added.`}
         </p>
       )}
-
-      <p className={`mt-2 text-xs ${MUTED}`}>
-        Click a cell and type. <strong className="font-medium">Enter</strong> goes down and adds a row at the
-        bottom, <strong className="font-medium">Alt+Enter</strong> (or Shift+Enter) breaks the line inside the
-        cell, <strong className="font-medium">Tab</strong> goes across, arrows move,{' '}
-        <strong className="font-medium">Esc</strong> puts back what was there. Drag the line between two
-        headings to resize a column. A <strong className="font-medium">Pick from a list</strong> column opens
-        its choices instead — type to find one, or type a new one and press Enter to add it to the list, and
-        the column sorts in the order the list is in. A{' '}
-        <strong className="font-medium">Pick several from a list</strong> column is the same list with the
-        menu left open: click a choice to put it on the cell or take it off, up to {MAX_CELL_TAGS} of them,
-        and Esc when you are done. The tags are kept in the cell itself, separated by commas, so a column
-        already filled in that way becomes chips the moment it is retyped — and filters ask whether a cell{' '}
-        <em>has</em> one tag rather than which one it is. Every cell in either carries an{' '}
-        <strong className="font-medium">ⓘ</strong> beside its chips: it opens a page you can write about that
-        cell on, as long as a post and with the same formatting, and the chips themselves are untouched so
-        the column still sorts and filters by what was picked. It is marked pink once something is written
-        there, and <strong className="font-medium">Alt+Enter</strong> on the cell opens it. A{' '}
-        <strong className="font-medium">Text &amp; pictures</strong> column opens a panel instead, and takes a
-        snip pasted straight onto the cell; click a picture in one to read
-        it over the whole page, where it can be shown at full size. Text cells take formatting:{' '}
-        <strong className="font-medium">Ctrl+B</strong> for bold, <strong className="font-medium">Ctrl+I</strong>{' '}
-        for italic, <strong className="font-medium">Ctrl+Alt+1</strong> for a title, or the buttons under the
-        cell — which write <code className="font-mono">**bold**</code> and{' '}
-        <code className="font-mono"># Title</code> into the cell itself, so nothing is lost by retyping the
-        column. A row goes in beside another one from the{' '}
-        <strong className="font-medium">⋮</strong> beside its number, and a column from the{' '}
-        <strong className="font-medium">⋮</strong> in its heading.
-        {table.sort &&
-          ' While a sort is on, the rows are only shown in that order — a row inserted above or below another goes in beside it in the stored order, and may appear elsewhere on the screen.'}
-        {hidden > 0 && ` A filter is hiding ${hidden} row${hidden === 1 ? '' : 's'}, and a new row starts empty, so it may be hidden the moment it is added.`}
-      </p>
     </div>
   );
 }
