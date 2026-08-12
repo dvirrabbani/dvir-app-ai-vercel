@@ -1409,6 +1409,25 @@ export function setCellContents(
   columnId: string,
   contents: CellContents
 ): boolean {
+  return setCellsContents(tableId, [{ rowId, columnId, contents }]);
+}
+
+/** One cell's worth of a write: where it goes, and what goes there. */
+export interface CellWrite {
+  rowId: string;
+  columnId: string;
+  contents: CellContents;
+}
+
+/**
+ * The row that comes of putting `contents` down on one of its cells, or `null`
+ * when that would change nothing at all.
+ *
+ * Split out from the write itself because a block of cells is put down row by
+ * row, several cells at a time, and each one has to be applied to whatever the
+ * cell before it left behind rather than to the stored row.
+ */
+function rowWithContents(row: Row, columnId: string, contents: CellContents): Row | null {
   const value = contents.value.slice(0, CELL_MAX_LENGTH);
   const images = toCellImages(contents.images);
   // Nothing but space is nothing written, as it is for `setCellNote` — kept as
@@ -1417,38 +1436,71 @@ export function setCellContents(
   const trimmed = contents.note.slice(0, CELL_NOTE_MAX_LENGTH);
   const note = trimmed.trim() === '' ? '' : trimmed;
 
+  // A cell put back exactly as it was is not a change: no write, and no event
+  // telling every open view to draw itself again.
+  const held = cellImages(row, columnId);
+  const same =
+    cellValue(row, columnId) === value &&
+    cellNote(row, columnId) === note &&
+    held.length === images.length &&
+    held.every((name, at) => name === images[at]);
+  if (same) return null;
+
+  const cells = { ...row.cells };
+  if (value === '') delete cells[columnId];
+  else cells[columnId] = value;
+
+  const pictures = { ...row.images };
+  if (images.length === 0) delete pictures[columnId];
+  else pictures[columnId] = images;
+
+  const notes = { ...row.notes };
+  if (note === '') delete notes[columnId];
+  else notes[columnId] = note;
+
+  return { ...row, cells, images: pictures, notes };
+}
+
+/**
+ * A whole block of cells put down at once — the several-cell version of
+ * `setCellContents`, and the one it is itself written in terms of.
+ *
+ * **One** write for the lot, which is the entire reason this exists rather than
+ * a loop over `setCellContents` at the call site. A rectangle four rows by
+ * three would otherwise be twelve trips to storage and twelve events, and every
+ * view listening would draw eleven half-finished tables on the way — the same
+ * reasoning that puts a single cell's words, pictures and writing in one write.
+ * It is also the only way the whole thing is one undoable act rather than
+ * twelve, and the only way a failed write half way through leaves nothing
+ * behind.
+ *
+ * Writes naming a row or a column that is not there are skipped rather than
+ * refused: a block clipped at the edge of the table is the caller's business,
+ * and a table changed in another tab while a copy was in hand should not lose
+ * the eleven cells that still land.
+ */
+export function setCellsContents(tableId: string, writes: readonly CellWrite[]): boolean {
+  if (writes.length === 0) return false;
+
   return editTable(tableId, (table) => {
-    const row = table.rows.find((each) => each.id === rowId);
-    if (!row || !table.columns.some((column) => column.id === columnId)) return null;
+    const columnIds = new Set(table.columns.map((column) => column.id));
+    // Only the rows this actually changes, each holding what every write before
+    // it left on that row.
+    const changed = new Map<string, Row>();
 
-    // A cell put back exactly as it was is not a change: no write, and no event
-    // telling every open view to draw itself again.
-    const held = cellImages(row, columnId);
-    const same =
-      cellValue(row, columnId) === value &&
-      cellNote(row, columnId) === note &&
-      held.length === images.length &&
-      held.every((name, at) => name === images[at]);
-    if (same) return null;
+    for (const write of writes) {
+      if (!columnIds.has(write.columnId)) continue;
 
-    const cells = { ...row.cells };
-    if (value === '') delete cells[columnId];
-    else cells[columnId] = value;
+      const row = changed.get(write.rowId) ?? table.rows.find((each) => each.id === write.rowId);
+      if (!row) continue;
 
-    const pictures = { ...row.images };
-    if (images.length === 0) delete pictures[columnId];
-    else pictures[columnId] = images;
+      const next = rowWithContents(row, write.columnId, write.contents);
+      if (next) changed.set(write.rowId, next);
+    }
 
-    const notes = { ...row.notes };
-    if (note === '') delete notes[columnId];
-    else notes[columnId] = note;
+    if (changed.size === 0) return null;
 
-    return {
-      ...table,
-      rows: table.rows.map((each) =>
-        each.id === rowId ? { ...each, cells, images: pictures, notes } : each
-      ),
-    };
+    return { ...table, rows: table.rows.map((row) => changed.get(row.id) ?? row) };
   });
 }
 

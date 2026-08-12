@@ -396,37 +396,72 @@ end taken off before the next goes on, and fitted inside
 `TABLE_NAME_MAX_LENGTH` rather than run past it. Tabs are how a table is found,
 and three of them reading "Notes" are three you have to open to tell apart.
 
-A **single cell** goes again with **Ctrl+C** and **Ctrl+V** on the selected
-cell — Alt+C and Alt+V too, and Cmd and Ctrl+Shift, since which modifier a hand
-reaches for is a habit and the same four are already accepted for a line break
-inside a cell. It is the whole cell rather than the words in it: `cellContents`/`setCellContents` carry the
-string, the pictures under it (`Row.images`) and the page written about it
-(`Row.notes`) together, in **one** write — three calls would be three events,
-and a view listening to the first would draw the new writing with the old
-pictures still under it. A copy only goes into a column of the **same type**,
+**Cells** go again with **Ctrl+C** and **Ctrl+V** — Alt+C and Alt+V too, and
+Cmd and Ctrl+Shift, since which modifier a hand reaches for is a habit and the
+same four are already accepted for a line break inside a cell. What is copied is
+whatever is **selected**, which is one cell or a rectangle of them, and a single
+cell is only the rectangle of one: `Copied`, `copyBlock`, `pasteBlock` and
+`clearBlock` are written once and a cell never has a path of its own.
+
+A rectangle is drawn by **dragging across the cells**, by **Shift+click** on the
+far corner, or by **Shift** with the arrows. The block is held as the cursor
+plus a far `corner`, and it is the shape *on the screen* — places in
+`visibleRows`, not ids — which is the opposite of the cursor, that follows its
+row by id under a sort. A drag only becomes a block once the pointer has **left**
+the cell it went down on: a drag inside one cell is somebody selecting words, and
+Ctrl+C on a selection deliberately copies the selection. That is also why the
+drag's starting cell is a ref rather than state — setting the cursor on
+`mousedown` would move focus mid-gesture and take the half-made text selection
+with it. Both gestures clear the browser's own highlight when they take over, or
+Ctrl+C would copy that instead. Escape unwinds one more layer than it used to:
+the block, then the cell, then the page's full screen.
+
+It is the whole of each cell rather than the words in it: `cellContents`/
+`setCellsContents` carry the string, the pictures under it (`Row.images`) and the
+page written about it (`Row.notes`) together, and a whole block lands in **one**
+write — a rectangle four by three would otherwise be twelve trips to storage and
+twelve events, and a view listening to the first would draw eleven half-pasted
+tables on the way. `setCellContents` is that same function called with one cell.
+
+A copy only goes into columns of the **same types**, asked column by column,
 which is the surface's rule rather than the storage module's: a cell of
 screenshots dropped into a plain text column would leave the pictures behind
-with nothing on the screen saying where they went. The refusal names both types
-out loud, since a keystroke that silently does nothing reads as a broken one.
-The pictures cross as the same file names, safe for the reason a duplicated
-row's are, and what the *target* was holding is gathered before the write and
-swept after it. Ctrl+V is only *taken* when there is a copy the column could
-hold; with none it goes through untouched, so a snip pasted straight onto a
-picture cell still reaches the browser's own `paste` event. Alt+V is answered
-either way, having no other meaning — it is how the refusal gets said out loud.
-Ctrl+C with words dragged out under the pointer is left alone too: a selection
-is what somebody meant to copy. The copy itself is a **module variable** in
-`table-grid.tsx`,
-not state and not storage: the grid is mounted afresh going in and out of full
-screen, so state would lose a copy taken on the page, and a cell on its way
-between rows belongs to the tab and the visit — the same reasoning as the Drive
-token. The cell's string goes to the **system clipboard** as well, so Ctrl+C
-also puts it into anything else on the machine — a copy keystroke that left the
-clipboard alone would be one that had half happened — and a refused write there
-is swallowed, the copy that matters having already been taken.
-`letterPressed` matches the key's **place** (`event.code`) as well as its
-letter, since Alt+C types "ç" on a Mac and a Hebrew letter on a Hebrew layout,
-and it answers the letter too because `code` is empty under some automation.
+with nothing on the screen saying where they went. It is all or nothing — half a
+block put down is a table nobody could put back — and the refusal names the
+column and both types out loud, since a keystroke that silently does nothing
+reads as a broken one. What runs past the last row or column is **clipped** and
+the footnote says how much landed; nothing is added to make room, a paste that
+grew the table by forty rows being a worse surprise than one that stopped. The
+pictures cross as the same file names, safe for the reason a duplicated row's
+are, and what the *targets* were holding is gathered before the write and swept
+after it. What was put down is left selected.
+
+Delete over a block empties every cell in it in one write, and only the
+**words** — the pictures and the writing stay, which is what Delete on one cell
+has always done. Ctrl+V is only *taken* when there is a copy the column under the
+cursor could start holding; with none it goes through untouched, so a snip pasted
+straight onto a picture cell still reaches the browser's own `paste` event. Alt+V
+is answered either way, having no other meaning — it is how the refusal gets said
+out loud. Ctrl+C with words dragged out under the pointer is left alone too, but
+only when a single cell is selected: a block across several is unmistakably about
+the cells.
+
+The copy itself is a **module variable** in `table-grid.tsx`, not state and not
+storage: the grid is mounted afresh going in and out of full screen, so state
+would lose a copy taken on the page, and cells on their way between rows belong
+to the tab and the visit — the same reasoning as the Drive token. The strings go
+to the **system clipboard** as well, so Ctrl+C also puts them into anything else
+on the machine — a copy keystroke that left the clipboard alone would be one that
+had half happened — and a refused write there is swallowed, the copy that matters
+having already been taken. A block goes out as **tabs between cells and newlines
+between rows**, which is what every spreadsheet reads, with any cell holding a
+tab, a newline or a quote wrapped in quotes and its own doubled — a text cell
+holds lines, and one of them would otherwise arrive as two rows. A single cell
+goes out as the bare string it is, quotes and all: there is no table around it
+for the quoting to be undone by. `letterPressed` matches the key's **place**
+(`event.code`) as well as its letter, since Alt+C types "ç" on a Mac and a Hebrew
+letter on a Hebrew layout, and it answers the letter too because `code` is empty
+under some automation.
 
 `app/document` is the one page that is **not** in the site's `max-w-6xl` reading
 column: the table takes the window's full width (the heading and the footnote
