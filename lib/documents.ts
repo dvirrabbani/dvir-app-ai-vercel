@@ -27,7 +27,7 @@
 import { isLocalImageName } from '@/lib/local-posts';
 import { plainRichText } from '@/lib/rich-text';
 
-export type ColumnType = 'text' | 'number' | 'date' | 'note' | 'check' | 'select';
+export type ColumnType = 'text' | 'number' | 'date' | 'note' | 'check' | 'select' | 'tags';
 
 export const COLUMN_TYPES: readonly ColumnType[] = [
   'text',
@@ -36,6 +36,7 @@ export const COLUMN_TYPES: readonly ColumnType[] = [
   'note',
   'check',
   'select',
+  'tags',
 ];
 
 export const COLUMN_TYPE_LABELS: Record<ColumnType, string> = {
@@ -45,6 +46,7 @@ export const COLUMN_TYPE_LABELS: Record<ColumnType, string> = {
   note: 'Text & pictures',
   check: 'Tick box',
   select: 'Pick from a list',
+  tags: 'Pick several from a list',
 };
 
 /** What a tick is written into the cell as. */
@@ -73,6 +75,63 @@ export function sameOption(a: string, b: string): boolean {
   return a.trim().toLowerCase() === b.trim().toLowerCase();
 }
 
+/**
+ * How a cell holding *several* choices tells them apart.
+ *
+ * A comma, because that is what somebody types when they mean several things —
+ * and that is the whole test this has to pass. The rule everywhere here is that
+ * a cell stores the string that was typed and the type only says how it is
+ * *read*, so a column filled in by hand with "Design, Urgent" has to become two
+ * chips the moment it is retyped, and retyping it back has to give the line
+ * return exactly as it was written. A second field beside the cell would have
+ * lost that, the same way a second field for the formatting markers would.
+ */
+export const TAG_SEPARATOR = ',';
+
+/** What goes back between two tags. The space is for reading it as text. */
+const TAG_JOIN = ', ';
+
+/**
+ * How many tags fit in one cell. Well under `MAX_COLUMN_OPTIONS`: a cell
+ * carrying every choice the column offers is a cell that says nothing, and
+ * twelve chips already make a row several lines tall.
+ */
+export const MAX_CELL_TAGS = 12;
+
+/**
+ * A cell read as tags: what is between the commas, in the order it was written.
+ *
+ * Blanks are dropped and a tag already held is not counted twice — two chips
+ * reading "Urgent" would be one thing you could take off two ways and filter
+ * for only half of, exactly as two identical choices on a list would be.
+ */
+export function readTags(value: string): string[] {
+  const tags: string[] = [];
+
+  for (const raw of value.split(TAG_SEPARATOR)) {
+    // Read exactly as a name is written onto the list, so a tag can never be a
+    // choice the list is unable to offer — which is what makes "add this to the
+    // list" always end with the chip coloured in rather than still dashed.
+    const tag = optionName(raw);
+    if (!tag || tags.some((each) => sameOption(each, tag))) continue;
+
+    tags.push(tag);
+    if (tags.length >= MAX_CELL_TAGS) break;
+  }
+
+  return tags;
+}
+
+/** Tags back into the one string a cell is. */
+export function writeTags(tags: readonly string[]): string {
+  return tags.join(TAG_JOIN);
+}
+
+/** Whether a cell is carrying one particular tag, however it is spelled. */
+export function hasTag(value: string, name: string): boolean {
+  return readTags(value).some((tag) => sameOption(tag, name));
+}
+
 export interface Column {
   id: string;
   name: string;
@@ -80,9 +139,12 @@ export interface Column {
   /** How wide it has been dragged, in pixels. */
   width: number;
   /**
-   * The choices a `select` column offers, in the order they are meant to be
-   * read — "To do, Doing, Done" rather than alphabetically, which is what
+   * The choices a `select` or `tags` column offers, in the order they are meant
+   * to be read — "To do, Doing, Done" rather than alphabetically, which is what
    * sorting the column follows.
+   *
+   * One list for both types, which is what makes retyping a column between them
+   * free: the same choices, picked one at a time or several at a time.
    *
    * Kept on the column whatever its type is, so retyping a list of choices as
    * text and back gives the list return along with every cell — the same
@@ -146,7 +208,9 @@ export type FilterOperator =
   | 'has-image'
   | 'no-image'
   | 'ticked'
-  | 'not-ticked';
+  | 'not-ticked'
+  | 'has-tag'
+  | 'no-tag';
 
 export interface Filter {
   id: string;
@@ -807,6 +871,68 @@ export function optionIndex(column: Column, value: string): number {
 }
 
 /**
+ * A choice's name as it can be put on a list.
+ *
+ * The comma comes out, because a comma is how a cell holding several choices
+ * tells them apart (`TAG_SEPARATOR`) — a choice named "Design, print" would
+ * read as two the moment the column was retyped to hold several, and a chip
+ * nobody could pick cleanly is worse than a name spelled without a comma.
+ *
+ * Only on the way in, and only to a name being *put* somewhere. Nothing already
+ * on a list is rewritten by this: a name stored before the rule existed stays
+ * exactly as it was written, the same promise every cell is under.
+ *
+ * Exported because anything that puts a choice onto the list *and* into a cell
+ * in one go has to put the same string in both places — two spellings of it is
+ * a chip that goes in dashed the moment it is added.
+ */
+export function optionName(raw: string): string {
+  return raw.split(TAG_SEPARATOR).join(' ').replace(/\s+/g, ' ').trim().slice(0, OPTION_MAX_LENGTH);
+}
+
+/**
+ * Whether a column's cells are picked off its list rather than typed into.
+ *
+ * The two types that are — one choice and several — behave alike everywhere but
+ * the number a cell holds: the same list, the same chips, the same page of
+ * writing behind each cell, the same order to sort in. So this is the question
+ * the grid and the filter bar ask, rather than naming both types in a dozen
+ * places and missing one the next time a third is added.
+ */
+export function picksFromList(type: ColumnType): boolean {
+  return type === 'select' || type === 'tags';
+}
+
+/**
+ * What one cell holds as choices: the one it names on a `select` column, every
+ * tag between the commas on a `tags` one, and nothing at all when it is empty.
+ *
+ * The one place the difference between the two types is spelled out, so
+ * everything that reads a column of choices — the list panel, the chips, the
+ * filter — asks the same question of both.
+ */
+export function cellChoices(row: Row, column: Column): string[] {
+  const value = cellValue(row, column.id);
+  if (column.type === 'tags') return readTags(value);
+
+  const one = value.trim();
+  return one ? [one] : [];
+}
+
+/**
+ * A cell's tags in the order the column's list is in, with anything the list
+ * does not offer after them in the order it was written.
+ *
+ * Put on when a tag is picked rather than when one is drawn, so what is stored
+ * is what is shown. A column where "Urgent" is sometimes first and sometimes
+ * third is a column you have to read every cell of instead of running an eye
+ * down it — the same reason the list has an order at all.
+ */
+function orderTags(column: Column, tags: readonly string[]): string[] {
+  return [...tags].sort((a, b) => optionRank(column, a) - optionRank(column, b));
+}
+
+/**
  * The same, for sorting: anything not on the list comes after everything that
  * is. It is not a choice yet, and the point of the order is to read the
  * choices in the order they were put in.
@@ -828,12 +954,15 @@ export function unlistedValues(table: TableDoc, column: Column): string[] {
   const found: string[] = [];
 
   for (const row of table.rows) {
-    const value = cellValue(row, column.id).trim();
-    if (!value || optionFor(column, value)) continue;
-    if (found.some((each) => sameOption(each, value))) continue;
+    // Every tag in the cell rather than the cell — a column of "Design, Urgent"
+    // has two words missing from its list, not one line missing from it.
+    for (const value of cellChoices(row, column)) {
+      if (optionFor(column, value)) continue;
+      if (found.some((each) => sameOption(each, value))) continue;
 
-    found.push(value.slice(0, OPTION_MAX_LENGTH));
-    if (found.length >= MAX_COLUMN_OPTIONS) break;
+      found.push(value.slice(0, OPTION_MAX_LENGTH));
+      if (found.length >= MAX_COLUMN_OPTIONS) return found;
+    }
   }
 
   return found;
@@ -845,7 +974,7 @@ export function addOption(tableId: string, columnId: string, name: string): bool
     const column = table.columns.find((each) => each.id === columnId);
     if (!column) return null;
 
-    const wanted = name.trim().slice(0, OPTION_MAX_LENGTH);
+    const wanted = optionName(name);
     if (!wanted || column.options.length >= MAX_COLUMN_OPTIONS) return null;
     if (column.options.some((each) => sameOption(each, wanted))) return null;
 
@@ -866,13 +995,17 @@ export function addOption(tableId: string, columnId: string, name: string): bool
  * choice renamed and its cells left behind would empty half the column of
  * anything the list could still match. Taking a choice off the list is the
  * other way round — see `removeOption`.
+ *
+ * A cell holding several carries the one tag over and leaves the rest of the
+ * line exactly as it was, in the order it was in: renaming "Urgent" must not
+ * quietly reshuffle the chips beside it.
  */
 export function renameOption(tableId: string, columnId: string, from: string, to: string): boolean {
   return editTable(tableId, (table) => {
     const column = table.columns.find((each) => each.id === columnId);
     if (!column) return null;
 
-    const wanted = to.trim().slice(0, OPTION_MAX_LENGTH);
+    const wanted = optionName(to);
     if (!wanted || !column.options.some((each) => sameOption(each, from))) return null;
     // Its own new spelling is allowed through — "done" to "Done" is a rename.
     if (column.options.some((each) => sameOption(each, wanted) && !sameOption(each, from))) return null;
@@ -885,7 +1018,17 @@ export function renameOption(tableId: string, columnId: string, from: string, to
           : each
       ),
       rows: table.rows.map((row) => {
-        if (!sameOption(cellValue(row, columnId), from)) return row;
+        const value = cellValue(row, columnId);
+
+        if (column.type === 'tags') {
+          const held = readTags(value);
+          if (!held.some((tag) => sameOption(tag, from))) return row;
+
+          const next = writeTags(held.map((tag) => (sameOption(tag, from) ? wanted : tag)));
+          return { ...row, cells: { ...row.cells, [columnId]: next } };
+        }
+
+        if (!sameOption(value, from)) return row;
         return { ...row, cells: { ...row.cells, [columnId]: wanted } };
       }),
     };
@@ -1043,6 +1186,38 @@ export function toggleTick(tableId: string, rowId: string, columnId: string): bo
   return setCell(tableId, rowId, columnId, isTicked(cellValue(row, columnId)) ? '' : TICKED);
 }
 
+/**
+ * One tag on or off a cell that holds several. The same shape as a tick box
+ * turned over, and for the same reason: picking is not typing, so there is one
+ * call that says what happened rather than a caller working out the new line.
+ *
+ * What goes back is the whole line in the list's order (`orderTags`), which is
+ * the only rewriting a pick does — the words themselves are untouched, so
+ * anything already down the column that the list does not offer keeps both its
+ * spelling and its place at the end.
+ *
+ * A cell already holding `MAX_CELL_TAGS` refuses another rather than dropping
+ * one to make room: which tag went would be nobody's decision.
+ */
+export function toggleTag(tableId: string, rowId: string, columnId: string, name: string): boolean {
+  const table = getTable(tableId);
+  const row = table?.rows.find((each) => each.id === rowId);
+  const column = table?.columns.find((each) => each.id === columnId);
+  if (!row || !column) return false;
+
+  const wanted = name.trim().slice(0, OPTION_MAX_LENGTH);
+  if (!wanted) return false;
+
+  const held = readTags(cellValue(row, columnId));
+  const holding = held.some((tag) => sameOption(tag, wanted));
+
+  if (!holding && held.length >= MAX_CELL_TAGS) return false;
+
+  const next = holding ? held.filter((tag) => !sameOption(tag, wanted)) : [...held, wanted];
+
+  return setCell(tableId, rowId, columnId, writeTags(orderTags(column, next)));
+}
+
 /* -------------------------------------------------------------------------- */
 /*  Pictures under a cell                                                     */
 /* -------------------------------------------------------------------------- */
@@ -1194,6 +1369,8 @@ const ALL_OPERATORS: readonly FilterOperator[] = [
   'no-image',
   'ticked',
   'not-ticked',
+  'has-tag',
+  'no-tag',
 ];
 
 /** A tick box is one question with two answers, so it offers exactly those. */
@@ -1218,6 +1395,14 @@ const NOTE_OPERATORS: readonly FilterOperator[] = [...TEXT_OPERATORS, 'has-image
  */
 const SELECT_OPERATORS: readonly FilterOperator[] = ['is', 'is-not', 'empty', 'not-empty'];
 
+/**
+ * A cell holding several is asked whether one of them is in it rather than
+ * which one it is: "is Urgent" of a cell reading "Design, Urgent" has no honest
+ * answer, and asking it that way is how a filter starts hiding the rows it was
+ * built to find. Two of them narrow to two tags, as two filters always do.
+ */
+const TAGS_OPERATORS: readonly FilterOperator[] = ['has-tag', 'no-tag', 'empty', 'not-empty'];
+
 const ORDERED_OPERATORS: readonly FilterOperator[] = [
   'is',
   'is-not',
@@ -1234,6 +1419,7 @@ export function operatorsFor(type: ColumnType): readonly FilterOperator[] {
   if (type === 'note') return NOTE_OPERATORS;
   if (type === 'check') return CHECK_OPERATORS;
   if (type === 'select') return SELECT_OPERATORS;
+  if (type === 'tags') return TAGS_OPERATORS;
   return type === 'text' ? TEXT_OPERATORS : ORDERED_OPERATORS;
 }
 
@@ -1268,6 +1454,10 @@ export function operatorLabel(operator: FilterOperator, type: ColumnType): strin
       return 'is ticked';
     case 'not-ticked':
       return 'is not ticked';
+    case 'has-tag':
+      return 'has';
+    case 'no-tag':
+      return 'does not have';
   }
 }
 
@@ -1286,6 +1476,7 @@ export function operatorNeedsValue(operator: FilterOperator): boolean {
 /** The first operator a column of this type would sensibly be filtered by. */
 export function defaultOperatorFor(type: ColumnType): FilterOperator {
   if (type === 'check') return 'ticked';
+  if (type === 'tags') return 'has-tag';
   return type === 'text' || type === 'note' ? 'contains' : 'is';
 }
 
@@ -1364,6 +1555,15 @@ export function matchesFilter(row: Row, column: Column, filter: Filter): boolean
   // stays put while the value is still being typed, or while the choice to
   // compare against has not been picked.
   if (!filter.value.trim()) return true;
+
+  // Whether one tag is among the ones in the cell. Asked of the operator rather
+  // than of the column, so a filter left pointing at a column since retyped
+  // still answers the question it was actually asked — a `select` cell reads as
+  // the one tag it holds, which is exactly what "has Done" means of it.
+  if (filter.operator === 'has-tag' || filter.operator === 'no-tag') {
+    const has = hasTag(cell, filter.value);
+    return filter.operator === 'no-tag' ? !has : has;
+  }
 
   // A choice is the same choice or it is not. Read as a comparison it would go
   // through `localeCompare`, where a numeric collation makes "Batch 2" and
@@ -1501,6 +1701,23 @@ function compareCells(a: string, b: string, column: Column): number {
     const first = optionRank(column, left);
     const second = optionRank(column, right);
     if (first !== second) return first - second;
+  }
+
+  // A cell of several is ordered by its tags in the list's order, the way two
+  // words are ordered by their letters: the first tag decides it, and only when
+  // they hold the same one does the next get a say. A cell whose tags are all
+  // shared with a longer one comes first, so "Urgent" sits above "Urgent,
+  // Waiting" rather than somewhere alphabetical among the pairs.
+  if (type === 'tags') {
+    const first = orderTags(column, readTags(left));
+    const second = orderTags(column, readTags(right));
+
+    for (let at = 0; at < Math.min(first.length, second.length); at += 1) {
+      const order = optionRank(column, first[at]) - optionRank(column, second[at]);
+      if (order !== 0) return order;
+    }
+
+    if (first.length !== second.length) return first.length - second.length;
   }
 
   if (type === 'number') {

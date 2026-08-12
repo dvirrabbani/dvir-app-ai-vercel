@@ -40,6 +40,7 @@ import {
   Column,
   ColumnType,
   MAX_CELL_IMAGES,
+  MAX_CELL_TAGS,
   MAX_COLUMNS,
   MAX_ROWS,
   MIN_COLUMN_WIDTH,
@@ -60,6 +61,7 @@ import {
   duplicateRow,
   imageNamesIn,
   moveColumn,
+  picksFromList,
   setCell,
   updateColumn,
   visibleRows,
@@ -111,9 +113,24 @@ interface OpenList {
   anchor: DOMRect;
 }
 
-/** The two columns that are not data: the row numbers, and the one at the end
- *  holding the + and the slack. Both are stated here and in the markup. */
-const NUMBER_COLUMN_WIDTH = 48;
+/**
+ * The two columns that are not data: the row numbers, and the one at the end
+ * holding the + and the slack.
+ *
+ * The number column is sized for everything in it at once rather than for the
+ * number: 16px of padding, 24 for a row number of up to three digits — a table
+ * holds 500 rows and "500" does not fit in the 16 this used to give it — 4 of
+ * gap, and 34 for the ⋮ and the bin beside it. That comes to 78, and the rest
+ * of the 84 is air: the slack falls between the number and the buttons, which
+ * `justify-between` puts at either end.
+ *
+ * At 48 the two buttons ran out past the cell's own edge and sat on the border.
+ * At 68 they fitted and still touched it, which reads as the same mistake —
+ * what a person sees is the bin against the line, not the two pixels of it that
+ * are on the right side of the line. The padding is what buys that, so it is
+ * `px-2` rather than the `px-1` the number alone wanted.
+ */
+const NUMBER_COLUMN_WIDTH = 84;
 const FILLER_COLUMN_WIDTH = 40;
 
 /** A date shown as a day rather than as its key; anything else exactly as typed. */
@@ -192,10 +209,10 @@ function HeaderMenu({
                 updateColumn(table.id, column.id, { type });
                 setOpen(false);
 
-                // A column that has just been told it holds one of a list, and
-                // has no list, is a column of nothing you can pick — so the
+                // A column that has just been told it holds choices off a list,
+                // and has no list, is a column of nothing you can pick — so the
                 // list opens rather than leaving somebody to find it.
-                if (type === 'select' && column.options.length === 0) {
+                if (picksFromList(type) && column.options.length === 0) {
                   const anchor = box.current?.getBoundingClientRect();
                   if (anchor) onEditList(anchor);
                 }
@@ -208,7 +225,7 @@ function HeaderMenu({
 
           <div className={`my-1 border-t ${LINE}`} />
 
-          {column.type === 'select' && (
+          {picksFromList(column.type) && (
             <button
               type="button"
               onClick={() => {
@@ -626,13 +643,13 @@ function GridCell({
         // Writing is shown as it was written, line breaks and all, and the row
         // grows to hold it — the same way a cell in a post's table does. A
         // number or a date is one line by nature and keeps its ellipsis.
-        // Named so the tag on a `select` cell can come up under the pointer
+        // Named so the tag on a cell of choices can come up under the pointer
         // without every other cell in the row coming up with it: the row is
         // already a `group`, and the row is not what is being reached for.
         className={`group/cell cursor-cell px-2 py-1.5 text-sm outline-none ${SOLID} ${
           type === 'text' || type === 'note'
             ? 'whitespace-pre-wrap break-words leading-snug'
-            : type === 'select'
+            : picksFromList(type)
               ? 'leading-snug'
               : 'truncate'
         } ${type === 'number' ? 'text-right tabular-nums' : ''} ${type === 'check' ? 'text-center' : ''} ${
@@ -657,10 +674,11 @@ function GridCell({
           />
         ) : type === 'note' ? (
           <NoteCellBody row={row} column={column} onView={onViewImage} />
-        ) : type === 'select' ? (
-          // The choice as a chip, and anything the list does not offer still
-          // shown as what somebody wrote — a type says how a string is read.
-          // The tag beside it opens what has been written about this cell.
+        ) : picksFromList(type) ? (
+          // The choices as chips — one of them, or every tag between the commas
+          // — and anything the list does not offer still shown as what somebody
+          // wrote, a type saying how a string is read. The ⓘ beside them opens
+          // what has been written about this cell.
           <SelectCellBody row={row} column={column} onOpenNote={onOpenNote} />
         ) : type === 'text' ? (
           // Drawn rather than printed out: `**a**` is a bold a and a line
@@ -693,9 +711,10 @@ const ROW_MENU_TRIGGER = 'data-row-menu';
 /**
  * What can be done to one row: a blank one put in over or under it, or a copy
  * of it. It is a menu rather than three more icons beside the number because
- * that column is 48 pixels wide and everything in it has to stay legible on
- * every row of a long table; the bin stays out in the open, being the one of
- * them anybody reaches for in a hurry.
+ * that column is `NUMBER_COLUMN_WIDTH` across and everything in it has to stay
+ * legible on every row of a long table — the two that are there already are
+ * what it is sized for; the bin stays out in the open, being the one of them
+ * anybody reaches for in a hurry.
  *
  * Rendered by the grid rather than inside the row, and `position: fixed`
  * against the button that asked for it — the same rule the note panel and the
@@ -958,11 +977,12 @@ export function TableGrid({
         return;
       }
 
-      // A cell holding one of a list is not typed into either: it opens the
-      // list. A character that opened it goes into the box at the top, which
-      // finds the choice it begins — so typing "d" and Enter is how "Done"
-      // gets picked without the mouse.
-      if (column?.type === 'select') {
+      // A cell picked off a list is not typed into either: it opens the list. A
+      // character that opened it goes into the box at the top, which finds the
+      // choice it begins — so typing "d" and Enter is how "Done" gets picked
+      // without the mouse. On a cell holding several the menu stays open after
+      // each, and the box clears itself for the next.
+      if (column && picksFromList(column.type)) {
         if (rect) setPick({ rowId, columnId, anchor: rect, initial });
         return;
       }
@@ -1007,7 +1027,7 @@ export function TableGrid({
       // cell. The tag that does the same with the mouse is not its own stop on
       // the way round with Tab — the grid moves by cell — so this is the way
       // to it without the hand leaving the keyboard.
-      if (key === 'Enter' && event.altKey && column.type === 'select') {
+      if (key === 'Enter' && event.altKey && picksFromList(column.type)) {
         event.preventDefault();
         setAbout({ rowId, columnId: column.id, anchor: event.currentTarget.getBoundingClientRect() });
         return;
@@ -1050,7 +1070,7 @@ export function TableGrid({
       // And Space opens a list, as it does on any other menu — a space typed
       // over the cell would otherwise open it looking for a choice beginning
       // with one, which is nothing.
-      if (column.type === 'select' && key === ' ') {
+      if (picksFromList(column.type) && key === ' ') {
         event.preventDefault();
         beginEdit(rowId, column.id, undefined, event.currentTarget.getBoundingClientRect());
         return;
@@ -1185,7 +1205,11 @@ export function TableGrid({
               {/* The row numbers, which stay put as the table is scrolled across. */}
               <th
                 scope="col"
-                className={`sticky left-0 z-10 w-12 border-b border-r bg-[#F5F5F7] p-0 text-center text-[10px] font-semibold uppercase tracking-wide dark:bg-[#2A2A2E] ${LINE} ${MUTED}`}
+                // Stated from the constant rather than beside it: the width the
+                // table declares and the width this column takes have to be the
+                // same number, and two of them drift.
+                style={{ width: NUMBER_COLUMN_WIDTH }}
+                className={`sticky left-0 z-10 border-b border-r bg-[#F5F5F7] p-0 text-center text-[10px] font-semibold uppercase tracking-wide dark:bg-[#2A2A2E] ${LINE} ${MUTED}`}
               >
                 #
               </th>
@@ -1239,8 +1263,11 @@ export function TableGrid({
                   // number belongs beside the first line of it.
                   className={`sticky left-0 z-10 border-b border-r bg-[#FAFAFA] p-0 align-top dark:bg-[#232326] ${LINE}`}
                 >
-                  <div className="flex items-center justify-between gap-0.5 px-1 py-1.5">
-                    <span className={`w-4 shrink-0 text-center text-[11px] tabular-nums ${MUTED}`}>
+                  <div className="flex items-center justify-between gap-1 px-2 py-1.5">
+                    {/* Wide enough for the last row of the longest table there
+                        can be: "500" in 16px was four pixels of it hanging over
+                        whatever came next. */}
+                    <span className={`w-6 shrink-0 text-center text-[11px] tabular-nums ${MUTED}`}>
                       {rowIndex + 1}
                     </span>
 
@@ -1249,7 +1276,10 @@ export function TableGrid({
                         menu is open is held visible too — the pointer has to
                         leave the row to reach the menu. */}
                     <span
-                      className={`flex shrink-0 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 ${
+                      // A gap between the two: hard against each other they
+                      // read as one control with two halves, which is how a bin
+                      // gets pressed by somebody reaching for the menu.
+                      className={`flex shrink-0 gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 ${
                         cursor?.rowId === row.id || rowMenu?.rowId === row.id ? 'opacity-100' : ''
                       }`}
                     >
@@ -1448,11 +1478,16 @@ export function TableGrid({
         <strong className="font-medium">Esc</strong> puts back what was there. Drag the line between two
         headings to resize a column. A <strong className="font-medium">Pick from a list</strong> column opens
         its choices instead — type to find one, or type a new one and press Enter to add it to the list, and
-        the column sorts in the order the list is in. Every cell in one carries an{' '}
-        <strong className="font-medium">ⓘ</strong> beside its chip: it opens a page you can write about that
-        cell on, as long as a post and with the same formatting, and the chip itself is untouched so the
-        column still sorts and filters by the choice. It is marked pink once something is written there, and{' '}
-        <strong className="font-medium">Alt+Enter</strong> on the cell opens it. A{' '}
+        the column sorts in the order the list is in. A{' '}
+        <strong className="font-medium">Pick several from a list</strong> column is the same list with the
+        menu left open: click a choice to put it on the cell or take it off, up to {MAX_CELL_TAGS} of them,
+        and Esc when you are done. The tags are kept in the cell itself, separated by commas, so a column
+        already filled in that way becomes chips the moment it is retyped — and filters ask whether a cell{' '}
+        <em>has</em> one tag rather than which one it is. Every cell in either carries an{' '}
+        <strong className="font-medium">ⓘ</strong> beside its chips: it opens a page you can write about that
+        cell on, as long as a post and with the same formatting, and the chips themselves are untouched so
+        the column still sorts and filters by what was picked. It is marked pink once something is written
+        there, and <strong className="font-medium">Alt+Enter</strong> on the cell opens it. A{' '}
         <strong className="font-medium">Text &amp; pictures</strong> column opens a panel instead, and takes a
         snip pasted straight onto the cell; click a picture in one to read
         it over the whole page, where it can be shown at full size. Text cells take formatting:{' '}
