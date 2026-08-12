@@ -60,6 +60,7 @@ import {
   deleteColumn,
   deleteRow,
   duplicateRow,
+  getTable,
   imageNamesIn,
   moveColumn,
   picksFromList,
@@ -1109,7 +1110,11 @@ export function TableGrid({
    */
   const copyCell = useCallback(
     (rowId: string, column: Column) => {
-      const row = rows.find((each) => each.id === rowId);
+      // Read afresh rather than from the rows this render was given: the
+      // button in the note panel commits what has just been typed and asks for
+      // the copy in the same breath, and the props here are one render behind
+      // that write.
+      const row = getTable(table.id)?.rows.find((each) => each.id === rowId);
       if (!row) return;
 
       const contents = cellContents(row, column.id);
@@ -1144,7 +1149,7 @@ export function TableGrid({
         text: `Copied ${what}. Ctrl+V puts it on another ${COLUMN_TYPE_LABELS[column.type]} cell.`,
       });
     },
-    [rows]
+    [table.id]
   );
 
   /**
@@ -1179,7 +1184,7 @@ export function TableGrid({
         return;
       }
 
-      const row = rows.find((each) => each.id === rowId);
+      const row = getTable(table.id)?.rows.find((each) => each.id === rowId);
       if (!row) return;
 
       // What this cell was holding, gathered before the write and swept after
@@ -1194,7 +1199,7 @@ export function TableGrid({
 
       setNotice(null);
     },
-    [rows, table.id]
+    [table.id]
   );
 
   const keysWhileSelected = useCallback(
@@ -1625,6 +1630,7 @@ export function TableGrid({
           column={openNote.column}
           anchor={openNote.anchor}
           onView={(names, at) => setViewing({ names, at })}
+          onCopy={() => copyCell(openNote.row.id, openNote.column)}
           onClose={() => setNote(null)}
         />
       )}

@@ -17,7 +17,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ImageOff, ImagePlus, Loader2, Trash2, X } from 'lucide-react';
+import { Check, Copy, ImageOff, ImagePlus, Loader2, Trash2, X } from 'lucide-react';
 import {
   CELL_MAX_LENGTH,
   Column,
@@ -213,6 +213,7 @@ export function NoteEditor({
   column,
   anchor,
   onView,
+  onCopy,
   onClose,
 }: {
   table: TableDoc;
@@ -222,6 +223,9 @@ export function NoteEditor({
   anchor: DOMRect;
   /** Opens the cell's pictures over the page, starting at the one clicked. */
   onView: (names: string[], at: number) => void;
+  /** Takes a copy of this whole cell — the grid holds the copy, this only
+   *  asks for it, the same as the Ctrl+C the grid answers on the cell. */
+  onCopy: () => void;
   onClose: () => void;
 }) {
   const stored = cellValue(row, column.id);
@@ -231,6 +235,9 @@ export function NoteEditor({
   const [draft, setDraft] = useState(stored);
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  /** Whether the copy button is showing that it has just been pressed. The
+   *  line under the table says so too, but it is behind this panel. */
+  const [justCopied, setJustCopied] = useState(false);
 
   const box = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -308,6 +315,31 @@ export function NoteEditor({
     },
     [column.id, commit, images.length, row.id, table.id]
   );
+
+  /**
+   * The cell copied from inside the panel it is being written in.
+   *
+   * The writing is committed first. Everything typed since the panel opened is
+   * still only a draft in here, and a copy taken of the stored string would be
+   * a copy of the cell as it was before this sitting — which is the one thing
+   * nobody means by "copy this cell".
+   */
+  const copy = useCallback(() => {
+    commit();
+    onCopy();
+    setJustCopied(true);
+  }, [commit, onCopy]);
+
+  // The button goes back to offering the copy rather than reporting it. Said
+  // in the button because the line that says it under the table is behind this
+  // panel, and a button that does nothing visible reads as a button that does
+  // nothing.
+  useEffect(() => {
+    if (!justCopied) return;
+
+    const timer = window.setTimeout(() => setJustCopied(false), 1600);
+    return () => window.clearTimeout(timer);
+  }, [justCopied]);
 
   const drop = useCallback(
     (name: string) => {
@@ -446,6 +478,23 @@ export function NoteEditor({
             void keep(file ?? null);
           }}
         />
+
+        {/* The keystroke is on the cell behind this panel, where a hand that
+            has already opened the cell cannot reach it — and a keystroke
+            nobody guesses is a feature nobody has. It says what it takes,
+            because "copy" beside a picture would read as copying the
+            picture. */}
+        <button
+          type="button"
+          onClick={copy}
+          title="Copy this whole cell — its writing and its pictures — to put on another Text & pictures cell (Ctrl+C on the cell itself)"
+          className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-white/10 ${LINE} ${
+            justCopied ? 'text-[#D81B60] dark:text-[#FF9EC1]' : SOLID
+          }`}
+        >
+          {justCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+          {justCopied ? 'Copied' : 'Copy cell'}
+        </button>
 
         <PictureFolderButton
           className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${LINE}`}
