@@ -396,8 +396,10 @@ end taken off before the next goes on, and fitted inside
 `TABLE_NAME_MAX_LENGTH` rather than run past it. Tabs are how a table is found,
 and three of them reading "Notes" are three you have to open to tell apart.
 
-A **single cell** goes again with **Alt+C** and **Alt+V**, and it is the whole
-cell rather than the words in it: `cellContents`/`setCellContents` carry the
+A **single cell** goes again with **Ctrl+C** and **Ctrl+V** on the selected
+cell — Alt+C and Alt+V too, and Cmd and Ctrl+Shift, since which modifier a hand
+reaches for is a habit and the same four are already accepted for a line break
+inside a cell. It is the whole cell rather than the words in it: `cellContents`/`setCellContents` carry the
 string, the pictures under it (`Row.images`) and the page written about it
 (`Row.notes`) together, in **one** write — three calls would be three events,
 and a view listening to the first would draw the new writing with the old
@@ -408,15 +410,23 @@ with nothing on the screen saying where they went. The refusal names both types
 out loud, since a keystroke that silently does nothing reads as a broken one.
 The pictures cross as the same file names, safe for the reason a duplicated
 row's are, and what the *target* was holding is gathered before the write and
-swept after it. The copy itself is a **module variable** in `table-grid.tsx`,
+swept after it. Ctrl+V is only *taken* when there is a copy the column could
+hold; with none it goes through untouched, so a snip pasted straight onto a
+picture cell still reaches the browser's own `paste` event. Alt+V is answered
+either way, having no other meaning — it is how the refusal gets said out loud.
+Ctrl+C with words dragged out under the pointer is left alone too: a selection
+is what somebody meant to copy. The copy itself is a **module variable** in
+`table-grid.tsx`,
 not state and not storage: the grid is mounted afresh going in and out of full
 screen, so state would lose a copy taken on the page, and a cell on its way
 between rows belongs to the tab and the visit — the same reasoning as the Drive
-token. Alt rather than the obvious pair: Ctrl+Shift+C is the browser's own
-inspector and cannot be had, and plain Ctrl+V has to stay free for a snip
-pasted straight onto a picture cell. `letterPressed` matches the key's **place**
-(`event.code`) as well as its letter, since Alt+C types "ç" on a Mac and a
-Hebrew letter on a Hebrew layout.
+token. The cell's string goes to the **system clipboard** as well, so Ctrl+C
+also puts it into anything else on the machine — a copy keystroke that left the
+clipboard alone would be one that had half happened — and a refused write there
+is swallowed, the copy that matters having already been taken.
+`letterPressed` matches the key's **place** (`event.code`) as well as its
+letter, since Alt+C types "ç" on a Mac and a Hebrew letter on a Hebrew layout,
+and it answers the letter too because `code` is empty under some automation.
 
 `app/document` is the one page that is **not** in the site's `max-w-6xl` reading
 column: the table takes the window's full width (the heading and the footnote

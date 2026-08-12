@@ -238,14 +238,17 @@ function HowToUse() {
         </p>
 
         <p>
-          <strong className="font-medium">Alt+C</strong> takes a copy of the whole cell the cursor is on —
-          what it says with its formatting, the pictures under it and the page written about it —{' '}
-          and <strong className="font-medium">Alt+V</strong> puts it on another cell, over whatever was
-          there. Only on a cell of the same kind: a <strong className="font-medium">Text &amp; pictures</strong>{' '}
+          <strong className="font-medium">Ctrl+C</strong> on a cell — clicked once, not opened — takes a
+          copy of the whole of it: what it says with its formatting, the pictures under it and the page
+          written about it. <strong className="font-medium">Ctrl+V</strong> puts it on another cell, over
+          whatever was there. <strong className="font-medium">Alt+C</strong> and{' '}
+          <strong className="font-medium">Alt+V</strong> do the same, for the hand that reaches for those.
+          Only onto a cell of the same kind: a <strong className="font-medium">Text &amp; pictures</strong>{' '}
           cell goes onto another one of those, and a copy offered to a column of another kind says so
-          rather than arriving half there. It is not the browser&rsquo;s clipboard, so it holds between
-          tables and until the tab is closed, and the pictures come across as the same files rather than
-          as second copies of them.
+          rather than arriving half there. The copy holds between tables until the tab is closed, and the
+          pictures come across as the same files rather than as second copies of them. A snip pasted
+          straight onto a picture cell still works — the keystroke is only taken when there is a copied
+          cell that column could hold.
         </p>
 
         <p>
