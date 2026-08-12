@@ -1115,6 +1115,15 @@ export function TableGrid({
       const contents = cellContents(row, column.id);
       copied = { type: column.type, contents };
 
+      // The words go to the system clipboard as well, so a cell copied with
+      // Ctrl+C can be put into anything else on the machine — a keystroke that
+      // left the clipboard untouched would be a keystroke that had half
+      // happened. The stored string, markers and all, since that is what
+      // another cell would want back. A refusal — an unfocused document, a
+      // browser that will not — is not worth a word: the copy that matters is
+      // the one above it, and it has already been taken.
+      void navigator.clipboard?.writeText(contents.value).catch(() => {});
+
       const pictures = contents.images.length;
       const extras = [
         pictures === 0 ? '' : pictures === 1 ? 'its picture' : `its ${pictures} pictures`,
@@ -1132,7 +1141,7 @@ export function TableGrid({
             : `this cell, ${extras[0]} and ${extras[1]}`;
 
       setNotice({
-        text: `Copied ${what}. Alt+V puts it on another ${COLUMN_TYPE_LABELS[column.type]} cell.`,
+        text: `Copied ${what}. Ctrl+V puts it on another ${COLUMN_TYPE_LABELS[column.type]} cell.`,
       });
     },
     [rows]
@@ -1154,7 +1163,7 @@ export function TableGrid({
 
       if (!carried) {
         setNotice({
-          text: 'Nothing has been copied yet — Alt+C takes a copy of the cell the cursor is on.',
+          text: 'No cell has been copied yet — Ctrl+C takes a copy of the cell the cursor is on.',
           wrong: true,
         });
         return;
@@ -1204,31 +1213,44 @@ export function TableGrid({
         return;
       }
 
-      /* A whole cell copied and put down again — Alt+C and Alt+V.
+      /* A whole cell copied and put down again.
 
-         Alt rather than the two pairs anybody would reach for first, both of
-         which are already spoken for. Ctrl+Shift+C is the browser's own
-         inspector and cannot be had, the way Ctrl+1 cannot; and plain Ctrl+V
-         has to stay free, because a snip pasted straight onto a picture cell is
-         Ctrl+V and taking that would be a poor trade for a second way to this.
-         Alt is already the modifier for what a cell carries beside its value —
-         Alt+Enter opens the writing behind a chip — so this sits with it.
+         On **any** of Ctrl+C, Cmd+C, Alt+C and Ctrl+Shift+C, and the same
+         four for V. Which one a person reaches for is a habit — the same
+         reasoning that gives a line break inside a cell four modifiers — and
+         the one anybody tries first is Ctrl+C, so binding this to Alt alone
+         made a feature that was only there for whoever read about it.
 
          Which key is which is `letterPressed`'s business: on a Hebrew layout,
          and on a Mac where Alt+C types "ç", the C key does not report a "c" at
          all, and it is still the C key. */
-      if (event.altKey && !event.ctrlKey && !event.metaKey) {
-        if (letterPressed(event, 'KeyC', 'c')) {
-          event.preventDefault();
-          copyCell(rowId, column);
-          return;
-        }
+      const held = event.ctrlKey || event.metaKey || event.altKey;
 
-        if (letterPressed(event, 'KeyV', 'v')) {
-          event.preventDefault();
-          pasteCell(rowId, column);
-          return;
-        }
+      if (held && letterPressed(event, 'KeyC', 'c')) {
+        // Words dragged out with the mouse belong to the browser's own copy:
+        // somebody who has selected half a sentence means that half, not the
+        // cell around it. Only an empty selection means "this cell".
+        const selection = window.getSelection();
+        if (selection && !selection.isCollapsed && selection.toString().trim() !== '') return;
+
+        event.preventDefault();
+        copyCell(rowId, column);
+        return;
+      }
+
+      if (held && letterPressed(event, 'KeyV', 'v')) {
+        /* A snip pasted straight onto a picture cell is Ctrl+V too, and that
+           is the browser's `paste` event rather than this — so the keystroke
+           is only taken when there is a copy this cell could actually take.
+           With none, it goes through untouched and the snip lands as it
+           always did. Alt+V is answered either way, having no other meaning:
+           it is how the refusal gets said out loud. */
+        const canTake = copied?.type === column.type;
+        if (!canTake && !event.altKey) return;
+
+        event.preventDefault();
+        pasteCell(rowId, column);
+        return;
       }
 
       // Enter opens the choices; Alt+Enter opens what is written about the
