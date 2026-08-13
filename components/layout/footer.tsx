@@ -4,7 +4,10 @@ import Link from 'next/link';
 import { Github, Linkedin, Twitter, Mail } from 'lucide-react';
 
 const footerLinks = [
-  { href: '#about', label: 'About' },
+  { href: '/about', label: 'About' },
+  // Two clicks inside About, and the only page here that is worth reaching in
+  // one — which is why it is in the footer and not in the navbar's nine.
+  { href: '/about/management/finance', label: 'Finance' },
   { href: '/calendar', label: 'Calendar' },
   { href: '/routines', label: 'Routines' },
   { href: '#insights', label: 'AI & Dev' },

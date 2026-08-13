@@ -17,7 +17,9 @@ import { useTheme } from 'next-themes';
 import { useEffect, useState } from 'react';
 
 const navLinks = [
-  { href: '/#about', label: 'About' },
+  // A page of its own rather than an anchor: the home page renders no `#about`
+  // section, and Management and Finance are kept inside it.
+  { href: '/about', label: 'About' },
   { href: '/calendar', label: 'Calendar' },
   { href: '/routines', label: 'Routines' },
   { href: '/blog', label: 'Blog' },
