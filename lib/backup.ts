@@ -4,6 +4,12 @@ import { CONTACT_EVENT, CONTACT_KEY } from '@/lib/contact';
 import { DIET_EVENT, DIET_KEY } from '@/lib/diet';
 import { DOCUMENTS_EVENT, DOCUMENTS_KEY } from '@/lib/documents';
 import { SHOWS_EVENT, SHOWS_KEY } from '@/lib/entertainment';
+import {
+  FINANCE_BUDGETS_KEY,
+  FINANCE_EVENT,
+  FINANCE_SETTINGS_KEY,
+  FINANCE_TRANSACTIONS_KEY,
+} from '@/lib/finance';
 import { GOALS_EVENT, GOALS_KEY } from '@/lib/goals';
 import { LIFESTYLE_EVENT, LIFESTYLE_KEY } from '@/lib/lifestyle';
 import { LOCAL_DRAFT_KEY, LOCAL_POSTS_EVENT, LOCAL_POSTS_KEY } from '@/lib/local-posts';
@@ -72,6 +78,12 @@ export const BACKUP_FEATURES: readonly BackupFeature[] = [
     event: POLL_EVENT,
   },
   { id: 'documents', label: 'Tables', keys: [DOCUMENTS_KEY], event: DOCUMENTS_EVENT },
+  {
+    id: 'finance',
+    label: 'Finance',
+    keys: [FINANCE_TRANSACTIONS_KEY, FINANCE_BUDGETS_KEY, FINANCE_SETTINGS_KEY],
+    event: FINANCE_EVENT,
+  },
   { id: 'contact', label: 'Contact messages', keys: [CONTACT_KEY], event: CONTACT_EVENT },
 ];
 

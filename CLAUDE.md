@@ -47,6 +47,7 @@ Each feature is a matched pair of files:
 | `milestone-cycles.ts` | `use-milestone-cycles.ts` | `app/milestones` |
 | `goals.ts` | `use-goals.ts` | `app/milestones` |
 | `documents.ts` | `use-documents.ts` | `app/document` |
+| `finance.ts` | `use-finance.ts` | `app/about/management/finance` |
 | `contact.ts` | `use-contact.ts` | `app/contact` |
 | `backup.ts` | `use-backup.ts` | `app/backup` |
 
@@ -576,6 +577,24 @@ months, weeks and days left until then, and is finished by ticking it, not by
 filling a bar. `countdownTo` there is the calendar-month arithmetic — it clamps
 short months, so 31 Jan + 1 month is 28 Feb rather than 3 Mar.
 
+`finance.ts` is the money, and it is read **a month at a time**: a salary arrives
+once, rent leaves once, and a category is over or under by the end of it. Three
+records under three keys — a **transaction** (what happened: an amount, a day, a
+category, a note), a **budget** (what a month of a category is *meant* to come
+to, one per category so nothing can be under and over at once) and the currency
+symbol, which is about the person rather than any one entry. Amounts are whole
+**minor units** and never floats: `parseAmount` reads the digits of what was
+typed rather than going through `parseFloat`, so a ledger cannot drift by a
+hundredth every dozen entries, and it is the only door in — "1,250.90" and
+"1.250,90" both land on 125090, a minus sign is refused because the direction is
+`kind`. Categories are not seeded and are not a list of their own: `categoriesIn`
+reads them back off the entries and the budgets, the way the diet menu refuses to
+guess at what somebody eats. The only figure that ignores the chosen month is the
+balance, which is everything ever logged and says so on the tile.
+`unbudgetedSpending` is the number the bars cannot show — a month can be inside
+every budget it has and still be a bad month, if half of it went somewhere
+nothing was planned for.
+
 **The storage module** owns the record types, the `'dvir-<feature>:…'` storage keys, a `<feature>-changed` custom event name, runtime type guards, and every read/write helper. Rules it follows everywhere, which new code must follow too:
 
 - Every function that touches `window` guards with `if (typeof window === 'undefined')` and returns an empty value.
@@ -595,6 +614,15 @@ short months, so 31 Jan + 1 month is 28 Feb rather than 3 Mar.
 ## Routing conventions
 
 Feature pages are `'use client'` (they read localStorage), so `export const metadata` cannot live in them. Each route therefore has a **`layout.tsx` that exports the metadata and renders `<Navbar />`**; the home page renders its own `Navbar`. Adding a route means adding that layout, plus an entry in `navLinks` in `components/layout/navbar.tsx` and in `components/layout/footer.tsx`.
+
+`/about` is a **page** rather than the home page's old `#about` anchor — the home
+page renders no such section, so that link went nowhere — and it is the one route
+with pages inside pages: `/about/management` and `/about/management/finance`
+under it. Only `app/about/layout.tsx` renders the navbar; the two inner layouts
+export metadata and nothing else, since that one wraps them too and a second
+navbar would sit on the screen beside the first (the same arrangement as
+`app/routines/summary`). The navbar's nine links stop at About; Finance is in the
+footer, being the page down there worth reaching in one click rather than three.
 
 `app/blog/[slug]/page.tsx` is the one server component of note, and it does nothing but await `params` and hand the slug to a client view — the post itself only exists in the reader's browser. Non-Latin slugs arrive percent-encoded and are decoded before matching (`decodeSlug`).
 
