@@ -5,9 +5,11 @@ import { Github, Linkedin, Twitter, Mail } from 'lucide-react';
 
 const footerLinks = [
   { href: '/about', label: 'About' },
-  // Two clicks inside About, and the only page here that is worth reaching in
-  // one — which is why it is in the footer and not in the navbar's nine.
+  // Three clicks deep inside About, and the pages there worth reaching in one —
+  // which is why they are in the footer and not in the navbar's nine.
   { href: '/about/management/finance', label: 'Finance' },
+  { href: '/about/management/presentation', label: 'Presentation' },
+  { href: '/about/management/lifestyle', label: 'Lifestyle' },
   { href: '/calendar', label: 'Calendar' },
   { href: '/routines', label: 'Routines' },
   { href: '#insights', label: 'AI & Dev' },
@@ -69,7 +71,9 @@ export function Footer() {
           </div>
 
           {/* Navigation Links */}
-          <nav className="flex items-center gap-8">
+          {/* Wrapping, and a smaller gap: ten links in one unwrapped row ran
+              off the side of a phone long before the tenth was added. */}
+          <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
             {footerLinks.map((link) => (
               <Link
                 key={link.href}
