@@ -18,6 +18,7 @@ import { CSSProperties, useCallback, useEffect, useMemo, useRef, useState } from
 import {
   ArrowDown,
   ArrowDownToLine,
+  ArrowLeftRight,
   ArrowLeftToLine,
   ArrowRightToLine,
   ArrowUp,
@@ -25,6 +26,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Copy,
+  CornerUpLeft,
   Filter as FilterIcon,
   List,
   MoreVertical,
@@ -64,7 +66,9 @@ import {
   getTable,
   imageNamesIn,
   moveColumn,
+  moveColumnTo,
   picksFromList,
+  reorderColumn,
   setCell,
   setCellsContents,
   updateColumn,
@@ -189,6 +193,29 @@ function displayCell(value: string, type: ColumnType): string {
 /*  The menu on a column                                                      */
 /* -------------------------------------------------------------------------- */
 
+/** On every column heading, so a drag can find them and the gaps between them. */
+const COLUMN_MARK = 'data-column';
+
+/** "the 3rd column", for the places a column can be moved to. English only, as
+ *  the rest of this surface's own words are. */
+function ordinal(place: number) {
+  const teen = place % 100;
+  if (teen >= 11 && teen <= 13) return `${place}th`;
+
+  const last = place % 10;
+  return `${place}${last === 1 ? 'st' : last === 2 ? 'nd' : last === 3 ? 'rd' : 'th'}`;
+}
+
+/** How far the pointer has to travel before pressing the ⋮ becomes dragging the
+ *  column. Under this it is a press, and the menu opens as it always did. */
+const COLUMN_DRAG_THRESHOLD = 5;
+
+/** Within this of either end of the scroll box, a drag scrolls the table along
+ *  with it, at this many pixels a frame — otherwise a column can only be moved
+ *  as far as the window happens to show. */
+const COLUMN_DRAG_EDGE = 56;
+const COLUMN_DRAG_SPEED = 14;
+
 /** `w-48` measured, since the menu is placed by hand rather than by `absolute`. */
 const HEADER_MENU_WIDTH = 192;
 
@@ -203,6 +230,7 @@ function HeaderMenu({
   index,
   onFilter,
   onEditList,
+  onGrab,
 }: {
   table: TableDoc;
   column: Column;
@@ -210,6 +238,12 @@ function HeaderMenu({
   onFilter: () => void;
   /** Opens the column's list of choices, against the menu it was asked from. */
   onEditList: (anchor: DOMRect) => void;
+  /**
+   * The pointer gone down on the ⋮, which is the column's grab handle as much as
+   * its menu. `moved` is called back if the gesture turns out to be a drag, so
+   * the click that follows opens nothing.
+   */
+  onGrab: (event: React.PointerEvent<HTMLButtonElement>, moved: () => void) => void;
 }) {
   // Where the button was when it was pressed. The menu is `position: fixed`
   // against it — the same rule the row menu, the note panel and the list of
@@ -222,9 +256,27 @@ function HeaderMenu({
   const box = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
 
-  const close = useCallback(() => setAnchor(null), []);
-  const toggle = () =>
+  /** Whether the gesture that is ending was a drag rather than a press. A
+   *  pointer let go after a drag still fires a click on this button, and a menu
+   *  opening at the end of every move would be one to close every time. */
+  const dragged = useRef(false);
+
+  /** The menu showing the places this column could go instead of its own
+   *  contents. One panel rather than a menu flying out beside a menu: this one
+   *  is already placed by hand against a button and capped at the room below
+   *  it, and a second one hanging off its side would have to be placed against
+   *  *that*, on the side the window happens to have room on. */
+  const [placing, setPlacing] = useState(false);
+
+  const close = useCallback(() => {
+    setAnchor(null);
+    setPlacing(false);
+  }, []);
+
+  const toggle = () => {
+    setPlacing(false);
     setAnchor(open ? null : (trigger.current?.getBoundingClientRect() ?? null));
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -232,12 +284,12 @@ function HeaderMenu({
     const away = (event: MouseEvent) => {
       // The menu is out of flow but still inside this wrapper in the DOM, so a
       // click in it is still "contained" and the check needs nothing more.
-      if (!box.current?.contains(event.target as Node)) setAnchor(null);
+      if (!box.current?.contains(event.target as Node)) close();
     };
 
     document.addEventListener('mousedown', away);
     return () => document.removeEventListener('mousedown', away);
-  }, [open]);
+  }, [close, open]);
 
   const full = table.columns.length >= MAX_COLUMNS;
 
@@ -272,11 +324,22 @@ function HeaderMenu({
       <button
         ref={trigger}
         type="button"
-        onClick={toggle}
-        title={`Options for ${column.name}`}
+        onPointerDown={(event) => {
+          dragged.current = false;
+          onGrab(event, () => {
+            dragged.current = true;
+            close();
+          });
+        }}
+        onClick={() => {
+          if (!dragged.current) toggle();
+        }}
+        title={`Options for ${column.name} — or drag to move the column`}
         aria-label={`Options for ${column.name}`}
         aria-expanded={open}
-        className={`rounded p-0.5 transition-colors hover:bg-black/10 dark:hover:bg-white/10 ${MUTED}`}
+        // `touch-none`, or a finger going down here would scroll the table
+        // instead of picking the column up. A tap still presses the button.
+        className={`cursor-grab touch-none rounded p-0.5 transition-colors hover:bg-black/10 active:cursor-grabbing dark:hover:bg-white/10 ${MUTED}`}
       >
         <MoreVertical className="h-3.5 w-3.5" />
       </button>
@@ -286,139 +349,203 @@ function HeaderMenu({
           style={place}
           className={`fixed z-50 overflow-y-auto overscroll-contain rounded-xl border bg-white p-1 shadow-lg dark:bg-[#26262A] ${LINE}`}
         >
-          <p className={`px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide ${MUTED}`}>
-            Holds
-          </p>
-          {COLUMN_TYPES.map((type) => (
-            <button
-              key={type}
-              type="button"
-              onClick={() => {
-                updateColumn(table.id, column.id, { type });
-                close();
+          {/* The places this column could take, which is the drag done from a
+              list: the numbers are where it would end up, and the name beside
+              each is whatever is standing there now. Picking one is the same
+              move — everything between shuffles along — so the column already
+              at that place is not displaced, only pushed along by one. */}
+          {placing ? (
+            <>
+              <button
+                type="button"
+                onClick={() => setPlacing(false)}
+                className={`${item} ${MUTED}`}
+              >
+                <CornerUpLeft className="h-3.5 w-3.5 shrink-0" />
+                Back
+              </button>
 
-                // A column that has just been told it holds choices off a list,
-                // and has no list, is a column of nothing you can pick — so the
-                // list opens rather than leaving somebody to find it.
-                if (picksFromList(type) && column.options.length === 0) {
-                  const at = box.current?.getBoundingClientRect();
-                  if (at) onEditList(at);
+              <p className={`px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide ${MUTED}`}>
+                Move {column.name} to
+              </p>
+
+              {table.columns.map((other, place) => {
+                const here = place === index;
+
+                return (
+                  <button
+                    key={other.id}
+                    type="button"
+                    disabled={here}
+                    onClick={() => {
+                      moveColumnTo(table.id, column.id, place);
+                      close();
+                    }}
+                    title={here ? `${column.name} is already the ${ordinal(place + 1)} column` : `Make ${column.name} the ${ordinal(place + 1)} column`}
+                    className={`${item} ${here ? MUTED : SOLID}`}
+                  >
+                    <span className="w-4 shrink-0 text-right tabular-nums">{place + 1}</span>
+                    <span className="truncate" dir="auto">
+                      {other.name}
+                    </span>
+                    {here && <span className="ml-auto shrink-0 text-[10px]">this one</span>}
+                  </button>
+                );
+              })}
+            </>
+          ) : (
+            <>
+              <p className={`px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide ${MUTED}`}>
+                Holds
+              </p>
+              {COLUMN_TYPES.map((type) => (
+                <button
+                  key={type}
+                  type="button"
+                  onClick={() => {
+                    updateColumn(table.id, column.id, { type });
+                    close();
+
+                    // A column that has just been told it holds choices off a
+                    // list, and has no list, is a column of nothing you can
+                    // pick — so the list opens rather than leaving somebody to
+                    // find it.
+                    if (picksFromList(type) && column.options.length === 0) {
+                      const at = box.current?.getBoundingClientRect();
+                      if (at) onEditList(at);
+                    }
+                  }}
+                  className={`${item} ${column.type === type ? 'font-semibold text-[#D81B60] dark:text-[#FF9EC1]' : SOLID}`}
+                >
+                  {COLUMN_TYPE_LABELS[type]}
+                </button>
+              ))}
+
+              <div className={`my-1 border-t ${LINE}`} />
+
+              {picksFromList(column.type) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const at = box.current?.getBoundingClientRect();
+                    close();
+                    if (at) onEditList(at);
+                  }}
+                  className={`${item} ${SOLID}`}
+                >
+                  <List className="h-3.5 w-3.5 shrink-0" />
+                  Edit the list
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  onFilter();
+                  close();
+                }}
+                className={`${item} ${SOLID}`}
+              >
+                <FilterIcon className="h-3.5 w-3.5 shrink-0" />
+                Filter by this column
+              </button>
+
+              {/* A new column beside this one rather than at the far end. The +
+                  in the corner still adds at the end, which is where a column
+                  is usually wanted; this is for the one that belongs next to
+                  something. */}
+              <button
+                type="button"
+                disabled={full}
+                onClick={() => {
+                  addColumn(table.id, { at: index });
+                  close();
+                }}
+                title={full ? `A table holds ${MAX_COLUMNS} columns` : `Add a column before ${column.name}`}
+                className={`${item} ${SOLID}`}
+              >
+                <ArrowLeftToLine className="h-3.5 w-3.5 shrink-0" />
+                Insert column left
+              </button>
+              <button
+                type="button"
+                disabled={full}
+                onClick={() => {
+                  addColumn(table.id, { at: index + 1 });
+                  close();
+                }}
+                title={full ? `A table holds ${MAX_COLUMNS} columns` : `Add a column after ${column.name}`}
+                className={`${item} ${SOLID}`}
+              >
+                <ArrowRightToLine className="h-3.5 w-3.5 shrink-0" />
+                Insert column right
+              </button>
+
+              <button
+                type="button"
+                disabled={index === 0}
+                onClick={() => {
+                  moveColumn(table.id, column.id, -1);
+                  close();
+                }}
+                className={`${item} ${SOLID}`}
+              >
+                <ChevronLeft className="h-3.5 w-3.5 shrink-0" />
+                Move left
+              </button>
+              <button
+                type="button"
+                disabled={index === table.columns.length - 1}
+                onClick={() => {
+                  moveColumn(table.id, column.id, 1);
+                  close();
+                }}
+                className={`${item} ${SOLID}`}
+              >
+                <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                Move right
+              </button>
+
+              {/* Somewhere in particular, rather than one place at a time: on a
+                  table of a dozen columns, moving the last one to the front is
+                  eleven presses of Move left. */}
+              <button
+                type="button"
+                disabled={table.columns.length < 2}
+                onClick={() => setPlacing(true)}
+                title={`Move ${column.name} to a place you pick`}
+                className={`${item} ${SOLID}`}
+              >
+                <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" />
+                Move to…
+              </button>
+
+              <div className={`my-1 border-t ${LINE}`} />
+
+              <button
+                type="button"
+                disabled={table.columns.length <= 1}
+                onClick={() => {
+                  // What was under this column, gathered before it goes:
+                  // afterwards there is nothing left to say which files it was
+                  // holding.
+                  const names = imageNamesIn(table.rows, column.id);
+                  deleteColumn(table.id, column.id);
+                  if (names.length > 0) void discardTableImages(names);
+                  close();
+                }}
+                title={
+                  table.columns.length <= 1
+                    ? 'A table keeps at least one column'
+                    : `Delete ${column.name} and everything in it`
                 }
-              }}
-              className={`${item} ${column.type === type ? 'font-semibold text-[#D81B60] dark:text-[#FF9EC1]' : SOLID}`}
-            >
-              {COLUMN_TYPE_LABELS[type]}
-            </button>
-          ))}
-
-          <div className={`my-1 border-t ${LINE}`} />
-
-          {picksFromList(column.type) && (
-            <button
-              type="button"
-              onClick={() => {
-                const at = box.current?.getBoundingClientRect();
-                close();
-                if (at) onEditList(at);
-              }}
-              className={`${item} ${SOLID}`}
-            >
-              <List className="h-3.5 w-3.5 shrink-0" />
-              Edit the list
-            </button>
+                className={`${item} text-[#B3261E] dark:text-[#FFB4AB]`}
+              >
+                <Trash2 className="h-3.5 w-3.5 shrink-0" />
+                Delete column
+              </button>
+            </>
           )}
-
-          <button
-            type="button"
-            onClick={() => {
-              onFilter();
-              close();
-            }}
-            className={`${item} ${SOLID}`}
-          >
-            <FilterIcon className="h-3.5 w-3.5 shrink-0" />
-            Filter by this column
-          </button>
-
-          {/* A new column beside this one rather than at the far end. The + in
-              the corner still adds at the end, which is where a column is
-              usually wanted; this is for the one that belongs next to
-              something. */}
-          <button
-            type="button"
-            disabled={full}
-            onClick={() => {
-              addColumn(table.id, { at: index });
-              close();
-            }}
-            title={full ? `A table holds ${MAX_COLUMNS} columns` : `Add a column before ${column.name}`}
-            className={`${item} ${SOLID}`}
-          >
-            <ArrowLeftToLine className="h-3.5 w-3.5 shrink-0" />
-            Insert column left
-          </button>
-          <button
-            type="button"
-            disabled={full}
-            onClick={() => {
-              addColumn(table.id, { at: index + 1 });
-              close();
-            }}
-            title={full ? `A table holds ${MAX_COLUMNS} columns` : `Add a column after ${column.name}`}
-            className={`${item} ${SOLID}`}
-          >
-            <ArrowRightToLine className="h-3.5 w-3.5 shrink-0" />
-            Insert column right
-          </button>
-
-          <button
-            type="button"
-            disabled={index === 0}
-            onClick={() => {
-              moveColumn(table.id, column.id, -1);
-              close();
-            }}
-            className={`${item} ${SOLID}`}
-          >
-            <ChevronLeft className="h-3.5 w-3.5 shrink-0" />
-            Move left
-          </button>
-          <button
-            type="button"
-            disabled={index === table.columns.length - 1}
-            onClick={() => {
-              moveColumn(table.id, column.id, 1);
-              close();
-            }}
-            className={`${item} ${SOLID}`}
-          >
-            <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-            Move right
-          </button>
-
-          <div className={`my-1 border-t ${LINE}`} />
-
-          <button
-            type="button"
-            disabled={table.columns.length <= 1}
-            onClick={() => {
-              // What was under this column, gathered before it goes: afterwards
-              // there is nothing left to say which files it was holding.
-              const names = imageNamesIn(table.rows, column.id);
-              deleteColumn(table.id, column.id);
-              if (names.length > 0) void discardTableImages(names);
-              close();
-            }}
-            title={
-              table.columns.length <= 1
-                ? 'A table keeps at least one column'
-                : `Delete ${column.name} and everything in it`
-            }
-            className={`${item} text-[#B3261E] dark:text-[#FFB4AB]`}
-          >
-            <Trash2 className="h-3.5 w-3.5 shrink-0" />
-            Delete column
-          </button>
         </div>
       )}
     </div>
@@ -434,19 +561,28 @@ function HeaderCell({
   column,
   index,
   width,
+  marker,
+  lifted,
   onResize,
   onFilter,
   onEditList,
+  onGrab,
 }: {
   table: TableDoc;
   column: Column;
   index: number;
   /** What to draw at — the live width while this one is being dragged. */
   width: number;
+  /** Which edge of this heading the column being dragged would land against,
+   *  drawn as a line: only ever one heading in the table has one. */
+  marker: 'left' | 'right' | null;
+  /** This is the column being dragged, and is drawn as having been picked up. */
+  lifted: boolean;
   /** A width to show and not yet store, or null when the pointer lifts. */
   onResize: (width: number | null) => void;
   onFilter: () => void;
   onEditList: (anchor: DOMRect) => void;
+  onGrab: (event: React.PointerEvent<HTMLButtonElement>, moved: () => void) => void;
 }) {
   const [draft, setDraft] = useState(column.name);
 
@@ -496,9 +632,27 @@ function HeaderCell({
   return (
     <th
       scope="col"
+      // The mark is what a column drag measures the gaps between the headings
+      // off — the headings themselves rather than the stored widths, which are
+      // only what each column asked for.
+      {...{ [COLUMN_MARK]: column.id }}
       style={{ width }}
-      className={`relative border-b border-r p-0 text-left align-middle ${LINE}`}
+      className={`relative border-b border-r p-0 text-left align-middle ${LINE} ${
+        lifted ? 'opacity-40' : ''
+      }`}
     >
+      {/* Where the column would land if it were put down now. Drawn on the
+          heading either side of the gap rather than over the table, so it needs
+          nothing measured and cannot drift from the columns it sits between. */}
+      {marker && (
+        <span
+          aria-hidden
+          className={`pointer-events-none absolute top-0 z-20 h-full w-0.5 bg-[#FF4D8E] ${
+            marker === 'left' ? 'left-0' : 'right-0'
+          }`}
+        />
+      )}
+
       <div className="flex items-center gap-1 px-1.5 py-1.5">
         <button
           type="button"
@@ -543,6 +697,7 @@ function HeaderCell({
           index={index}
           onFilter={onFilter}
           onEditList={onEditList}
+          onGrab={onGrab}
         />
       </div>
 
@@ -1100,6 +1255,13 @@ export function TableGrid({
   const [viewing, setViewing] = useState<{ names: string[]; at: number } | null>(null);
   const [notice, setNotice] = useState<Notice | null>(null);
   const [resizing, setResizing] = useState<{ columnId: string; width: number } | null>(null);
+  /** The column being dragged, and the gap it would be put down in. */
+  const [moving, setMoving] = useState<{ columnId: string; to: number } | null>(null);
+
+  /** The box the table scrolls inside, so a drag near either end can bring the
+   *  rest of the columns into view rather than stopping at the edge. */
+  const scrollBox = useRef<HTMLDivElement>(null);
+  const headRow = useRef<HTMLTableRowElement>(null);
 
   /** What a column is being drawn at: the width under the pointer, or its own. */
   const widthOf = useCallback(
@@ -1121,6 +1283,130 @@ export function TableGrid({
   const declaredWidth = useMemo(
     () => NUMBER_COLUMN_WIDTH + columns.reduce((total, column) => total + widthOf(column), 0) + FILLER_COLUMN_WIDTH,
     [columns, widthOf]
+  );
+
+  /**
+   * A column picked up by its ⋮ and put down in another gap.
+   *
+   * The gesture shares that button on purpose. A heading 90px across has room
+   * for the sort arrow, the name and one control more; a handle of its own would
+   * be a fourth thing, and the name is what a heading is for. So the pointer
+   * going down here starts nothing at all — only once it has travelled
+   * `COLUMN_DRAG_THRESHOLD` does the press become a drag, and a press that never
+   * moves opens the menu exactly as it always did. The menu keeps Move left and
+   * Move right, which is the same thing done from the keyboard.
+   *
+   * Where the column would land is measured off the headings **on the screen**
+   * rather than off the stored widths: the last column is stretched by the
+   * filler beside it, and a table scrolled halfway across has nothing to do with
+   * either. It is a gap between two headings, so the same landing is described
+   * whether the column is travelling left or right.
+   */
+  const startColumnDrag = useCallback(
+    (columnId: string, event: React.PointerEvent<HTMLButtonElement>, moved: () => void) => {
+      if (event.button !== 0 || table.columns.length < 2) return;
+
+      // Read now: a synthetic event's `currentTarget` is null by the time any of
+      // these listeners run.
+      const grip = event.currentTarget;
+      const startX = event.clientX;
+
+      let dragging = false;
+      let landing: number | null = null;
+      let pointerX = startX;
+      let frame = 0;
+
+      /** Which gap the pointer is nearest: 0 in front of the first column. */
+      const gapNearest = () => {
+        const heads = headRow.current?.querySelectorAll<HTMLElement>(`[${COLUMN_MARK}]`);
+        if (!heads || heads.length === 0) return null;
+
+        for (let i = 0; i < heads.length; i += 1) {
+          const rect = heads[i].getBoundingClientRect();
+          if (pointerX < rect.left + rect.width / 2) return i;
+        }
+        return heads.length;
+      };
+
+      const settle = () => {
+        const to = gapNearest();
+        if (to === null) return;
+        landing = to;
+        setMoving({ columnId, to });
+      };
+
+      /* Held near either end of the box, the table scrolls under the drag —
+         otherwise a column can only be moved as far as the window happens to
+         show, which on a table of a dozen columns is not far. It stops asking
+         for frames once the box has nothing left to scroll. */
+      const creep = () => {
+        frame = 0;
+        const box = scrollBox.current;
+        if (!box) return;
+
+        const rect = box.getBoundingClientRect();
+        const step =
+          pointerX < rect.left + COLUMN_DRAG_EDGE
+            ? -COLUMN_DRAG_SPEED
+            : pointerX > rect.right - COLUMN_DRAG_EDGE
+              ? COLUMN_DRAG_SPEED
+              : 0;
+        if (step === 0) return;
+
+        const was = box.scrollLeft;
+        box.scrollLeft += step;
+        settle();
+        if (box.scrollLeft !== was) frame = requestAnimationFrame(creep);
+      };
+
+      function finish(put: boolean) {
+        grip.removeEventListener('pointermove', onMove);
+        grip.removeEventListener('pointerup', onUp);
+        grip.removeEventListener('pointercancel', onCancel);
+        window.removeEventListener('keydown', onKey, true);
+        if (frame) cancelAnimationFrame(frame);
+        document.body.style.cursor = '';
+        setMoving(null);
+        if (put && landing !== null) reorderColumn(table.id, columnId, landing);
+      }
+
+      const onMove = (moveEvent: PointerEvent) => {
+        pointerX = moveEvent.clientX;
+
+        if (!dragging) {
+          if (Math.abs(pointerX - startX) < COLUMN_DRAG_THRESHOLD) return;
+          dragging = true;
+          moved();
+          // The pointer is captured by a small button, so nothing else on the
+          // page would say a column is in hand.
+          document.body.style.cursor = 'grabbing';
+          // Whatever was highlighted before is not what this gesture is about.
+          window.getSelection()?.removeAllRanges();
+        }
+
+        settle();
+        if (!frame) frame = requestAnimationFrame(creep);
+      };
+
+      const onUp = () => finish(dragging);
+      const onCancel = () => finish(false);
+
+      // In the capture phase, so an Escape mid-drag puts the column back rather
+      // than unwinding the cell the cursor happens to be sitting on.
+      const onKey = (keyEvent: KeyboardEvent) => {
+        if (keyEvent.key !== 'Escape' || !dragging) return;
+        keyEvent.preventDefault();
+        keyEvent.stopPropagation();
+        finish(false);
+      };
+
+      grip.setPointerCapture(event.pointerId);
+      grip.addEventListener('pointermove', onMove);
+      grip.addEventListener('pointerup', onUp);
+      grip.addEventListener('pointercancel', onCancel);
+      window.addEventListener('keydown', onKey, true);
+    },
+    [table.columns.length, table.id]
   );
 
   /**
@@ -1786,6 +2072,7 @@ export function TableGrid({
   return (
     <div className={fill ? 'flex min-h-0 flex-1 flex-col' : ''}>
       <div
+        ref={scrollBox}
         className={`overflow-auto rounded-xl border ${LINE} bg-white/70 dark:bg-white/[0.03] ${
           fill ? 'min-h-0 flex-1' : 'max-h-[65vh]'
         }`}
@@ -1807,7 +2094,7 @@ export function TableGrid({
                 : ''
             }`}
           >
-            <tr>
+            <tr ref={headRow}>
               {/* The row numbers, which stay put as the table is scrolled across. */}
               <th
                 scope="col"
@@ -1827,7 +2114,21 @@ export function TableGrid({
                   column={column}
                   index={index}
                   width={widthOf(column)}
+                  // The line goes on the left of the heading whose gap it is,
+                  // and on the right of the last one when the landing is the
+                  // gap past the end — there being no heading after it.
+                  marker={
+                    !moving
+                      ? null
+                      : moving.to === index
+                        ? 'left'
+                        : moving.to === columns.length && index === columns.length - 1
+                          ? 'right'
+                          : null
+                  }
+                  lifted={moving?.columnId === column.id}
                   onResize={(width) => setResizing(width === null ? null : { columnId: column.id, width })}
+                  onGrab={(event, moved) => startColumnDrag(column.id, event, moved)}
                   onFilter={() => {
                     addFilter(table.id, column.id);
                     onFilterColumn();
