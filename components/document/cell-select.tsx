@@ -56,6 +56,7 @@ import {
   RichCellEditor,
   RichCellHandle,
 } from '@/components/document/rich-text';
+import { Floating } from '@/components/document/floating';
 
 /** Literal greys: `text-muted-foreground` resolves to nothing in this project. */
 const MUTED = 'text-[#4B5563] dark:text-[#9CA3AF]';
@@ -364,191 +365,193 @@ export function OptionPicker({
   );
 
   return (
-    <div
-      ref={box}
-      style={{ ...placePanel(anchor), width: Math.max(PANEL_WIDTH, Math.min(anchor.width, 360)) }}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          // Held here: this Escape closes the menu and nothing else. It must
-          // not also let go of the cell behind it or leave full screen.
-          event.stopPropagation();
-          onClose();
-          return;
-        }
-
-        if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-          event.preventDefault();
-          if (matches.length === 0) return;
-          const next = highlighted + (event.key === 'ArrowDown' ? 1 : -1);
-          setAt((next + matches.length) % matches.length);
-          return;
-        }
-
-        if (event.key === 'Enter') {
-          event.preventDefault();
-          // What is under the highlight, or what has just been typed when the
-          // list has nothing like it — which is how a list is written in the
-          // first place, one choice at a time as the rows need them.
-          if (highlighted !== -1) pick(matches[highlighted]);
-          else add();
-        }
-      }}
-      className={`${PANEL} ${LINE}`}
-    >
-      <div className="flex items-center gap-1.5">
-        <span className={`min-w-0 flex-1 truncate text-xs font-semibold ${SOLID}`} dir="auto">
-          {column.name}
-        </span>
-        {/* How many are on, on a cell that can hold several — the chips are
-            behind the panel as often as not, and "3 of 12" is what says
-            whether there is room for the one you came to add. */}
-        {several && held.length > 0 && (
-          <span className={`shrink-0 text-[11px] tabular-nums ${MUTED}`}>
-            {held.length} of {MAX_CELL_TAGS}
-          </span>
-        )}
-        <button
-          type="button"
-          onClick={onClose}
-          title="Close (Esc)"
-          aria-label="Close"
-          className={`shrink-0 rounded p-1 transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${MUTED}`}
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
-      <input
-        autoFocus
-        value={query}
-        onChange={(event) => {
-          setQuery(event.target.value);
-          setAt(0);
-        }}
-        dir="auto"
-        maxLength={OPTION_MAX_LENGTH}
-        placeholder={
-          column.options.length === 0
-            ? 'Type the first choice'
-            : several
-              ? 'Find or add — the menu stays open'
-              : 'Find or add a choice'
-        }
-        aria-label={`Find or add a choice for ${column.name}`}
-        className={`${FIELD} ${LINE} ${SOLID} placeholder:text-gray-500 dark:placeholder:text-gray-400`}
-      />
-
-      <ul className="max-h-52 overflow-auto">
-        {matches.map((option, index) => {
-          // Its place on the *column's* list, not in what the box has narrowed
-          // it to: a choice must not change colour while you type its name.
-          const place = column.options.indexOf(option);
-          const on = holding(option);
-
-          return (
-            <li key={option}>
-              <button
-                type="button"
-                onMouseEnter={() => setAt(index)}
-                onClick={() => pick(option)}
-                // Every one already on stays pressable, since that is how it
-                // comes off again; only adding a thirteenth is refused.
-                disabled={full && !on}
-                className={`flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-                  index === highlighted ? 'bg-black/[0.06] dark:bg-white/10' : ''
-                }`}
-              >
-                <OptionChip name={option} place={place} className="min-w-0" />
-                {on && (
-                  <Check className="ml-auto h-3.5 w-3.5 shrink-0 text-[#D81B60] dark:text-[#FF9EC1]" />
-                )}
-              </button>
-            </li>
-          );
-        })}
-
-        {matches.length === 0 && (
-          <li className={`px-1.5 py-1 text-[11px] ${MUTED}`}>
-            {column.options.length === 0
-              ? 'No choices yet.'
-              : `Nothing on the list matches “${query.trim()}”.`}
-          </li>
-        )}
-      </ul>
-
-      {canAdd && !full && (
-        <button
-          type="button"
-          onClick={add}
-          className={`flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-left text-xs transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${SOLID}`}
-        >
-          <Plus className="h-3.5 w-3.5 shrink-0 text-[#D81B60] dark:text-[#FF9EC1]" />
-          <span className="min-w-0 truncate">
-            Add <span className="font-semibold">{typed}</span> to the list
-          </span>
-        </button>
-      )}
-
-      {full && (
-        <p className={`px-1.5 text-[11px] ${MUTED}`}>
-          {MAX_CELL_TAGS} tags is the lot for one cell. Take one off to make room.
-        </p>
-      )}
-
-      {/* Only what this cell is holding that the list is not offering: the
-          words stay where they are either way, and the button is the one thing
-          that would otherwise mean retyping them into the column's own menu. */}
-      {unlistedHere.length > 0 && (
-        <div className={`flex flex-col gap-1 border-t pt-1.5 ${LINE}`}>
-          {unlistedHere.map((name) => (
-            <div key={name.toLowerCase()} className="flex items-center gap-1.5">
-              <OptionChip name={name} place={-1} className="min-w-0" />
-              <button
-                type="button"
-                disabled={column.options.length >= MAX_COLUMN_OPTIONS}
-                onClick={() => {
-                  addOption(table.id, column.id, name);
-
-                  // A cell holding one *is* the choice, so it is made to say
-                  // what the list now offers when the two differ — a comma
-                  // cannot be part of a name, and a button reading "add to the
-                  // list" that leaves the chip dashed has not done what it
-                  // says. A tag can never differ: `readTags` reads one exactly
-                  // as a name is written. Then there is nothing left to do
-                  // here, on a cell that holds only the one.
-                  if (!several) {
-                    setCell(table.id, row.id, column.id, optionName(name));
-                    onClose();
-                  }
-                }}
-                className={`ml-auto shrink-0 rounded-lg px-1.5 py-1 text-[11px] underline transition-colors hover:bg-black/5 disabled:no-underline disabled:opacity-40 dark:hover:bg-white/10 ${MUTED}`}
-              >
-                Add to the list
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {held.length > 0 && (
-        <button
-          type="button"
-          onClick={() => {
-            setCell(table.id, row.id, column.id, '');
+    <Floating>
+      <div
+        ref={box}
+        style={{ ...placePanel(anchor), width: Math.max(PANEL_WIDTH, Math.min(anchor.width, 360)) }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            // Held here: this Escape closes the menu and nothing else. It must
+            // not also let go of the cell behind it or leave full screen.
+            event.stopPropagation();
             onClose();
-          }}
-          className={`rounded-lg px-1.5 py-1 text-left text-xs transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${MUTED}`}
-        >
-          Empty this cell
-        </button>
-      )}
+            return;
+          }
 
-      {several && (
-        <p className={`px-1.5 text-[11px] ${MUTED}`}>
-          Click a choice to put it on or take it off. Esc when you are done.
-        </p>
-      )}
-    </div>
+          if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+            event.preventDefault();
+            if (matches.length === 0) return;
+            const next = highlighted + (event.key === 'ArrowDown' ? 1 : -1);
+            setAt((next + matches.length) % matches.length);
+            return;
+          }
+
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            // What is under the highlight, or what has just been typed when the
+            // list has nothing like it — which is how a list is written in the
+            // first place, one choice at a time as the rows need them.
+            if (highlighted !== -1) pick(matches[highlighted]);
+            else add();
+          }
+        }}
+        className={`${PANEL} ${LINE}`}
+      >
+        <div className="flex items-center gap-1.5">
+          <span className={`min-w-0 flex-1 truncate text-xs font-semibold ${SOLID}`} dir="auto">
+            {column.name}
+          </span>
+          {/* How many are on, on a cell that can hold several — the chips are
+              behind the panel as often as not, and "3 of 12" is what says
+              whether there is room for the one you came to add. */}
+          {several && held.length > 0 && (
+            <span className={`shrink-0 text-[11px] tabular-nums ${MUTED}`}>
+              {held.length} of {MAX_CELL_TAGS}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={onClose}
+            title="Close (Esc)"
+            aria-label="Close"
+            className={`shrink-0 rounded p-1 transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${MUTED}`}
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        <input
+          autoFocus
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setAt(0);
+          }}
+          dir="auto"
+          maxLength={OPTION_MAX_LENGTH}
+          placeholder={
+            column.options.length === 0
+              ? 'Type the first choice'
+              : several
+                ? 'Find or add — the menu stays open'
+                : 'Find or add a choice'
+          }
+          aria-label={`Find or add a choice for ${column.name}`}
+          className={`${FIELD} ${LINE} ${SOLID} placeholder:text-gray-500 dark:placeholder:text-gray-400`}
+        />
+
+        <ul className="max-h-52 overflow-auto">
+          {matches.map((option, index) => {
+            // Its place on the *column's* list, not in what the box has narrowed
+            // it to: a choice must not change colour while you type its name.
+            const place = column.options.indexOf(option);
+            const on = holding(option);
+
+            return (
+              <li key={option}>
+                <button
+                  type="button"
+                  onMouseEnter={() => setAt(index)}
+                  onClick={() => pick(option)}
+                  // Every one already on stays pressable, since that is how it
+                  // comes off again; only adding a thirteenth is refused.
+                  disabled={full && !on}
+                  className={`flex w-full items-center gap-1.5 rounded-lg px-1.5 py-1 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+                    index === highlighted ? 'bg-black/[0.06] dark:bg-white/10' : ''
+                  }`}
+                >
+                  <OptionChip name={option} place={place} className="min-w-0" />
+                  {on && (
+                    <Check className="ml-auto h-3.5 w-3.5 shrink-0 text-[#D81B60] dark:text-[#FF9EC1]" />
+                  )}
+                </button>
+              </li>
+            );
+          })}
+
+          {matches.length === 0 && (
+            <li className={`px-1.5 py-1 text-[11px] ${MUTED}`}>
+              {column.options.length === 0
+                ? 'No choices yet.'
+                : `Nothing on the list matches “${query.trim()}”.`}
+            </li>
+          )}
+        </ul>
+
+        {canAdd && !full && (
+          <button
+            type="button"
+            onClick={add}
+            className={`flex items-center gap-1.5 rounded-lg px-1.5 py-1 text-left text-xs transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${SOLID}`}
+          >
+            <Plus className="h-3.5 w-3.5 shrink-0 text-[#D81B60] dark:text-[#FF9EC1]" />
+            <span className="min-w-0 truncate">
+              Add <span className="font-semibold">{typed}</span> to the list
+            </span>
+          </button>
+        )}
+
+        {full && (
+          <p className={`px-1.5 text-[11px] ${MUTED}`}>
+            {MAX_CELL_TAGS} tags is the lot for one cell. Take one off to make room.
+          </p>
+        )}
+
+        {/* Only what this cell is holding that the list is not offering: the
+            words stay where they are either way, and the button is the one thing
+            that would otherwise mean retyping them into the column's own menu. */}
+        {unlistedHere.length > 0 && (
+          <div className={`flex flex-col gap-1 border-t pt-1.5 ${LINE}`}>
+            {unlistedHere.map((name) => (
+              <div key={name.toLowerCase()} className="flex items-center gap-1.5">
+                <OptionChip name={name} place={-1} className="min-w-0" />
+                <button
+                  type="button"
+                  disabled={column.options.length >= MAX_COLUMN_OPTIONS}
+                  onClick={() => {
+                    addOption(table.id, column.id, name);
+
+                    // A cell holding one *is* the choice, so it is made to say
+                    // what the list now offers when the two differ — a comma
+                    // cannot be part of a name, and a button reading "add to the
+                    // list" that leaves the chip dashed has not done what it
+                    // says. A tag can never differ: `readTags` reads one exactly
+                    // as a name is written. Then there is nothing left to do
+                    // here, on a cell that holds only the one.
+                    if (!several) {
+                      setCell(table.id, row.id, column.id, optionName(name));
+                      onClose();
+                    }
+                  }}
+                  className={`ml-auto shrink-0 rounded-lg px-1.5 py-1 text-[11px] underline transition-colors hover:bg-black/5 disabled:no-underline disabled:opacity-40 dark:hover:bg-white/10 ${MUTED}`}
+                >
+                  Add to the list
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {held.length > 0 && (
+          <button
+            type="button"
+            onClick={() => {
+              setCell(table.id, row.id, column.id, '');
+              onClose();
+            }}
+            className={`rounded-lg px-1.5 py-1 text-left text-xs transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${MUTED}`}
+          >
+            Empty this cell
+          </button>
+        )}
+
+        {several && (
+          <p className={`px-1.5 text-[11px] ${MUTED}`}>
+            Click a choice to put it on or take it off. Esc when you are done.
+          </p>
+        )}
+      </div>
+    </Floating>
   );
 }
 
@@ -623,93 +626,95 @@ export function CellNotePanel({
   const left = CELL_NOTE_MAX_LENGTH - draft.length;
 
   return (
-    <div
-      ref={box}
-      style={{ ...placePanel(anchor, NOTE_WIDTH, NOTE_HEIGHT), width: NOTE_WIDTH, maxHeight: NOTE_HEIGHT }}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          // Held here: this Escape closes the panel and nothing else. It must
-          // not also let go of the cell behind it or leave full screen.
-          event.stopPropagation();
-          onClose();
-        }
-        // Enter makes a new line in here, so there has to be another way out
-        // that keeps your hands where they are.
-        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) onClose();
-      }}
-      className={`${PANEL} ${LINE} overflow-auto`}
-    >
-      <div className="flex items-start gap-1.5">
-        <span className={`min-w-0 shrink truncate text-xs font-semibold leading-6 ${SOLID}`} dir="auto">
-          {column.name}
-        </span>
-
-        {/* Which cell this is about, said the way the cell itself says it —
-            every chip of it, on a cell holding several. A panel over a scrolled
-            grid can easily be the only thing on the screen, and "about this
-            cell" is no use once the cell is hidden behind it. */}
-        {held.length > 0 && (
-          <span className="flex min-w-0 shrink flex-wrap items-center gap-1 py-0.5">
-            {held.map((name) => (
-              <ChoiceChip key={name.toLowerCase()} column={column} name={name} />
-            ))}
-          </span>
-        )}
-
-        <button
-          type="button"
-          onClick={onClose}
-          title="Close (Esc)"
-          aria-label="Close"
-          className={`ml-auto shrink-0 rounded p-1 transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${MUTED}`}
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
-      {/* Written as it will be read — the same surface every other piece of
-          writing on this page uses, showing the bold word bold and never the
-          markers that make it. */}
-      <RichCellEditor
-        ref={field}
-        value={stored}
-        max={CELL_NOTE_MAX_LENGTH}
-        onChange={setDraft}
-        label={`What is written about this ${column.name} cell`}
+    <Floating>
+      <div
+        ref={box}
+        style={{ ...placePanel(anchor, NOTE_WIDTH, NOTE_HEIGHT), width: NOTE_WIDTH, maxHeight: NOTE_HEIGHT }}
         onKeyDown={(event) => {
-          const command = shortcutCommand(event);
-
-          if (command) {
-            event.preventDefault();
-            field.current?.run(command);
-            return;
+          if (event.key === 'Escape') {
+            // Held here: this Escape closes the panel and nothing else. It must
+            // not also let go of the cell behind it or leave full screen.
+            event.stopPropagation();
+            onClose();
           }
-
-          // Plain Enter is a new line rather than "done": this is a page of
-          // writing, not a cell being filled in on the way down a column.
-          if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey) {
-            event.preventDefault();
-            field.current?.breakLine();
-          }
+          // Enter makes a new line in here, so there has to be another way out
+          // that keeps your hands where they are.
+          if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) onClose();
         }}
-        className={`min-h-40 w-full flex-1 overflow-auto whitespace-pre-wrap break-words rounded-lg border bg-white/70 px-2 py-1.5 text-sm leading-relaxed transition-colors focus:border-[#FF4D8E]/50 focus:ring-2 focus:ring-[#FF4D8E]/20 dark:bg-white/5 ${LINE} ${SOLID}`}
-      />
+        className={`${PANEL} ${LINE} overflow-auto`}
+      >
+        <div className="flex items-start gap-1.5">
+          <span className={`min-w-0 shrink truncate text-xs font-semibold leading-6 ${SOLID}`} dir="auto">
+            {column.name}
+          </span>
 
-      <FormatToolbar editor={field} />
+          {/* Which cell this is about, said the way the cell itself says it —
+              every chip of it, on a cell holding several. A panel over a scrolled
+              grid can easily be the only thing on the screen, and "about this
+              cell" is no use once the cell is hidden behind it. */}
+          {held.length > 0 && (
+            <span className="flex min-w-0 shrink flex-wrap items-center gap-1 py-0.5">
+              {held.map((name) => (
+                <ChoiceChip key={name.toLowerCase()} column={column} name={name} />
+              ))}
+            </span>
+          )}
 
-      {/* The room left is only worth saying when it is nearly gone; up to then
-          it is a number in the corner telling somebody writing a paragraph
-          that they are being counted. */}
-      <p className={`text-[11px] ${left < 500 ? 'text-[#B3261E] dark:text-[#FFB4AB]' : MUTED}`}>
-        {left < 500
-          ? `${left} characters left.`
-          : `Ctrl+B is bold and Ctrl+Alt+1 a title. Ctrl+Enter closes. ${
-              column.type === 'tags'
-                ? 'The tags themselves are untouched, so the column still sorts and filters by what was picked.'
-                : 'The chip itself is untouched, so the column still sorts and filters by the choice.'
-            }`}
-      </p>
-    </div>
+          <button
+            type="button"
+            onClick={onClose}
+            title="Close (Esc)"
+            aria-label="Close"
+            className={`ml-auto shrink-0 rounded p-1 transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${MUTED}`}
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        {/* Written as it will be read — the same surface every other piece of
+            writing on this page uses, showing the bold word bold and never the
+            markers that make it. */}
+        <RichCellEditor
+          ref={field}
+          value={stored}
+          max={CELL_NOTE_MAX_LENGTH}
+          onChange={setDraft}
+          label={`What is written about this ${column.name} cell`}
+          onKeyDown={(event) => {
+            const command = shortcutCommand(event);
+
+            if (command) {
+              event.preventDefault();
+              field.current?.run(command);
+              return;
+            }
+
+            // Plain Enter is a new line rather than "done": this is a page of
+            // writing, not a cell being filled in on the way down a column.
+            if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey) {
+              event.preventDefault();
+              field.current?.breakLine();
+            }
+          }}
+          className={`min-h-40 w-full flex-1 overflow-auto whitespace-pre-wrap break-words rounded-lg border bg-white/70 px-2 py-1.5 text-sm leading-relaxed transition-colors focus:border-[#FF4D8E]/50 focus:ring-2 focus:ring-[#FF4D8E]/20 dark:bg-white/5 ${LINE} ${SOLID}`}
+        />
+
+        <FormatToolbar editor={field} />
+
+        {/* The room left is only worth saying when it is nearly gone; up to then
+            it is a number in the corner telling somebody writing a paragraph
+            that they are being counted. */}
+        <p className={`text-[11px] ${left < 500 ? 'text-[#B3261E] dark:text-[#FFB4AB]' : MUTED}`}>
+          {left < 500
+            ? `${left} characters left.`
+            : `Ctrl+B is bold and Ctrl+Alt+1 a title. Ctrl+Enter closes. ${
+                column.type === 'tags'
+                  ? 'The tags themselves are untouched, so the column still sorts and filters by what was picked.'
+                  : 'The chip itself is untouched, so the column still sorts and filters by the choice.'
+              }`}
+        </p>
+      </div>
+    </Floating>
   );
 }
 
@@ -838,112 +843,114 @@ export function OptionListPanel({
   }, [column.id, draft, table.id]);
 
   return (
-    <div
-      ref={box}
-      style={{ ...placePanel(anchor), width: PANEL_WIDTH, maxHeight: PANEL_HEIGHT }}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          event.stopPropagation();
-          onClose();
-        }
-      }}
-      className={`${PANEL} ${LINE} overflow-auto`}
-    >
-      <div className="flex items-center gap-1.5">
-        <span className={`min-w-0 flex-1 truncate text-xs font-semibold ${SOLID}`} dir="auto">
-          {column.name} — the list
-        </span>
-        <button
-          type="button"
-          onClick={onClose}
-          title="Close (Esc)"
-          aria-label="Close"
-          className={`shrink-0 rounded p-1 transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${MUTED}`}
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
-      {options.length === 0 ? (
-        <p className={`text-[11px] ${MUTED}`}>
-          Nothing on the list yet. Add the choices here, or type one straight into any cell in this column.
-        </p>
-      ) : (
-        <ul className="flex flex-col gap-1">
-          {options.map((option, index) => (
-            <OptionRow
-              key={option}
-              table={table}
-              column={column}
-              option={option}
-              index={index}
-              count={options.length}
-            />
-          ))}
-        </ul>
-      )}
-
-      <div className="flex items-center gap-1">
-        <input
-          value={draft}
-          onChange={(event) => setDraft(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key !== 'Enter') return;
-            event.preventDefault();
-            add();
-          }}
-          dir="auto"
-          disabled={full}
-          maxLength={OPTION_MAX_LENGTH}
-          placeholder={full ? `${MAX_COLUMN_OPTIONS} choices is the lot` : 'Another choice'}
-          aria-label={`Add a choice to ${column.name}`}
-          className={`${FIELD} ${LINE} ${SOLID} flex-1 placeholder:text-gray-500 disabled:opacity-60 dark:placeholder:text-gray-400`}
-        />
-        <button
-          type="button"
-          onClick={add}
-          disabled={full || !draft.trim()}
-          title="Add this choice"
-          aria-label="Add this choice"
-          className="shrink-0 rounded-lg bg-[#D81B60] p-1.5 text-white transition-colors hover:bg-[#B0154E] disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          <Plus className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
-      {unlisted.length > 0 && (
-        <div className={`flex flex-col gap-1.5 border-t pt-1.5 ${LINE}`}>
-          <p className={`text-[11px] ${MUTED}`}>
-            {unlisted.length === 1
-              ? 'One value down this column is not on the list:'
-              : `${unlisted.length} values down this column are not on the list:`}
-          </p>
-          <div className="flex flex-wrap gap-1">
-            {unlisted.map((value) => (
-              <OptionChip key={value} name={value} place={-1} />
-            ))}
-          </div>
+    <Floating>
+      <div
+        ref={box}
+        style={{ ...placePanel(anchor), width: PANEL_WIDTH, maxHeight: PANEL_HEIGHT }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            event.stopPropagation();
+            onClose();
+          }
+        }}
+        className={`${PANEL} ${LINE} overflow-auto`}
+      >
+        <div className="flex items-center gap-1.5">
+          <span className={`min-w-0 flex-1 truncate text-xs font-semibold ${SOLID}`} dir="auto">
+            {column.name} — the list
+          </span>
           <button
             type="button"
-            disabled={full}
-            onClick={() => {
-              // As many as there is room for, in the order they appear down the
-              // column — which is nearer to the order they were thought of than
-              // anything alphabetical would be.
-              for (const value of unlisted.slice(0, room)) addOption(table.id, column.id, value);
-            }}
-            className={`self-start rounded-lg border px-2 py-1 text-[11px] font-medium transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-white/10 ${LINE} ${SOLID}`}
+            onClick={onClose}
+            title="Close (Esc)"
+            aria-label="Close"
+            className={`shrink-0 rounded p-1 transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${MUTED}`}
           >
-            {full
-              ? `${MAX_COLUMN_OPTIONS} choices is the lot`
-              : unlisted.length > room
-                ? `Add the first ${room} to the list`
-                : unlisted.length === 1
-                  ? 'Add it to the list'
-                  : 'Add them all to the list'}
+            <X className="h-3.5 w-3.5" />
           </button>
         </div>
-      )}
-    </div>
+
+        {options.length === 0 ? (
+          <p className={`text-[11px] ${MUTED}`}>
+            Nothing on the list yet. Add the choices here, or type one straight into any cell in this column.
+          </p>
+        ) : (
+          <ul className="flex flex-col gap-1">
+            {options.map((option, index) => (
+              <OptionRow
+                key={option}
+                table={table}
+                column={column}
+                option={option}
+                index={index}
+                count={options.length}
+              />
+            ))}
+          </ul>
+        )}
+
+        <div className="flex items-center gap-1">
+          <input
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key !== 'Enter') return;
+              event.preventDefault();
+              add();
+            }}
+            dir="auto"
+            disabled={full}
+            maxLength={OPTION_MAX_LENGTH}
+            placeholder={full ? `${MAX_COLUMN_OPTIONS} choices is the lot` : 'Another choice'}
+            aria-label={`Add a choice to ${column.name}`}
+            className={`${FIELD} ${LINE} ${SOLID} flex-1 placeholder:text-gray-500 disabled:opacity-60 dark:placeholder:text-gray-400`}
+          />
+          <button
+            type="button"
+            onClick={add}
+            disabled={full || !draft.trim()}
+            title="Add this choice"
+            aria-label="Add this choice"
+            className="shrink-0 rounded-lg bg-[#D81B60] p-1.5 text-white transition-colors hover:bg-[#B0154E] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <Plus className="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        {unlisted.length > 0 && (
+          <div className={`flex flex-col gap-1.5 border-t pt-1.5 ${LINE}`}>
+            <p className={`text-[11px] ${MUTED}`}>
+              {unlisted.length === 1
+                ? 'One value down this column is not on the list:'
+                : `${unlisted.length} values down this column are not on the list:`}
+            </p>
+            <div className="flex flex-wrap gap-1">
+              {unlisted.map((value) => (
+                <OptionChip key={value} name={value} place={-1} />
+              ))}
+            </div>
+            <button
+              type="button"
+              disabled={full}
+              onClick={() => {
+                // As many as there is room for, in the order they appear down the
+                // column — which is nearer to the order they were thought of than
+                // anything alphabetical would be.
+                for (const value of unlisted.slice(0, room)) addOption(table.id, column.id, value);
+              }}
+              className={`self-start rounded-lg border px-2 py-1 text-[11px] font-medium transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-white/10 ${LINE} ${SOLID}`}
+            >
+              {full
+                ? `${MAX_COLUMN_OPTIONS} choices is the lot`
+                : unlisted.length > room
+                  ? `Add the first ${room} to the list`
+                  : unlisted.length === 1
+                    ? 'Add it to the list'
+                    : 'Add them all to the list'}
+            </button>
+          </div>
+        )}
+      </div>
+    </Floating>
   );
 }

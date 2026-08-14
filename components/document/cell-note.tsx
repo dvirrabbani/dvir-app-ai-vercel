@@ -47,6 +47,7 @@ import {
   keepPicture,
   useFolderState,
 } from '@/components/document/picture-folder';
+import { Floating } from '@/components/document/floating';
 
 /** Literal greys: `text-muted-foreground` resolves to nothing in this project. */
 const MUTED = 'text-[#4B5563] dark:text-[#9CA3AF]';
@@ -354,162 +355,164 @@ export function NoteEditor({
   const { left, top } = placePanel(anchor);
 
   return (
-    <div
-      ref={box}
-      style={{ left, top, width: PANEL_WIDTH, maxHeight: PANEL_HEIGHT }}
-      onPaste={(event) => {
-        const blob = imageFrom(event.clipboardData);
-        if (!blob) return;
-        event.preventDefault();
-        void keep(blob);
-      }}
-      onDragOver={(event) => event.preventDefault()}
-      onDrop={(event) => {
-        const blob = imageFrom(event.dataTransfer);
-        if (!blob) return;
-        event.preventDefault();
-        void keep(blob);
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          // Held here: this Escape closes the panel and nothing else. It must
-          // not also let go of the cell behind it or leave full screen.
-          event.stopPropagation();
-          onClose();
-        }
-        // Enter makes a new line in here, so there has to be another way out
-        // that keeps your hands where they are.
-        if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) onClose();
-      }}
-      className={`fixed z-50 flex flex-col gap-2 overflow-auto rounded-xl border bg-white p-2.5 shadow-xl dark:bg-[#26262A] ${LINE}`}
-    >
-      <div className="flex items-center gap-1.5">
-        <span className={`min-w-0 flex-1 truncate text-xs font-semibold ${SOLID}`} dir="auto">
-          {column.name}
-        </span>
-        <button
-          type="button"
-          onClick={onClose}
-          title="Close (Esc)"
-          aria-label="Close"
-          className={`shrink-0 rounded p-1 transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${MUTED}`}
-        >
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
-
-      {images.length > 0 && (
-        <ul className="flex flex-wrap gap-1.5">
-          {images.map((name, index) => (
-            <li key={name} className="relative">
-              {/* A real stop on the way round with Tab, unlike the copy in the
-                  grid: in here there is no cell cursor to get in the way of. */}
-              <button
-                type="button"
-                onClick={() => onView(images, index)}
-                title="Open this picture over the page"
-                className="block max-w-full cursor-zoom-in rounded transition-opacity hover:opacity-80"
-              >
-                <Thumb name={name} maxHeight={150} alt={plainRichText(draft) || column.name} />
-              </button>
-              <button
-                type="button"
-                onClick={() => drop(name)}
-                title="Take this picture out of the cell"
-                aria-label="Take this picture out of the cell"
-                className="absolute -right-1.5 -top-1.5 rounded-full bg-[#B3261E] p-0.5 text-white shadow transition-colors hover:bg-[#8E1D18]"
-              >
-                <Trash2 className="h-3 w-3" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
-
-      {/* Written as it will be read — the same surface a plain text cell uses,
-          showing the bold word bold and never the markers that make it. */}
-      <RichCellEditor
-        ref={field}
-        value={stored}
-        max={CELL_MAX_LENGTH}
-        onChange={setDraft}
-        label={`${column.name} — what this cell says`}
-        // The same marks as a plain text cell, on the same keys. Handled here
-        // rather than on the panel, which is only listening for the two ways
-        // out of it — and Ctrl+Enter, one of those two, is let through.
-        onKeyDown={(event) => {
-          const command = shortcutCommand(event);
-
-          if (command) {
-            event.preventDefault();
-            field.current?.run(command);
-            return;
-          }
-
-          if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey) {
-            event.preventDefault();
-            field.current?.breakLine();
-          }
+    <Floating>
+      <div
+        ref={box}
+        style={{ left, top, width: PANEL_WIDTH, maxHeight: PANEL_HEIGHT }}
+        onPaste={(event) => {
+          const blob = imageFrom(event.clipboardData);
+          if (!blob) return;
+          event.preventDefault();
+          void keep(blob);
         }}
-        className={`max-h-64 w-full overflow-auto whitespace-pre-wrap break-words rounded-lg border bg-white/70 px-2 py-1.5 text-sm transition-colors focus:border-[#FF4D8E]/50 focus:ring-2 focus:ring-[#FF4D8E]/20 dark:bg-white/5 ${LINE} ${SOLID}`}
-      />
+        onDragOver={(event) => event.preventDefault()}
+        onDrop={(event) => {
+          const blob = imageFrom(event.dataTransfer);
+          if (!blob) return;
+          event.preventDefault();
+          void keep(blob);
+        }}
+        onKeyDown={(event) => {
+          if (event.key === 'Escape') {
+            // Held here: this Escape closes the panel and nothing else. It must
+            // not also let go of the cell behind it or leave full screen.
+            event.stopPropagation();
+            onClose();
+          }
+          // Enter makes a new line in here, so there has to be another way out
+          // that keeps your hands where they are.
+          if (event.key === 'Enter' && (event.ctrlKey || event.metaKey)) onClose();
+        }}
+        className={`fixed z-50 flex flex-col gap-2 overflow-auto rounded-xl border bg-white p-2.5 shadow-xl dark:bg-[#26262A] ${LINE}`}
+      >
+        <div className="flex items-center gap-1.5">
+          <span className={`min-w-0 flex-1 truncate text-xs font-semibold ${SOLID}`} dir="auto">
+            {column.name}
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            title="Close (Esc)"
+            aria-label="Close"
+            className={`shrink-0 rounded p-1 transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${MUTED}`}
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
 
-      <FormatToolbar editor={field} />
+        {images.length > 0 && (
+          <ul className="flex flex-wrap gap-1.5">
+            {images.map((name, index) => (
+              <li key={name} className="relative">
+                {/* A real stop on the way round with Tab, unlike the copy in the
+                    grid: in here there is no cell cursor to get in the way of. */}
+                <button
+                  type="button"
+                  onClick={() => onView(images, index)}
+                  title="Open this picture over the page"
+                  className="block max-w-full cursor-zoom-in rounded transition-opacity hover:opacity-80"
+                >
+                  <Thumb name={name} maxHeight={150} alt={plainRichText(draft) || column.name} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => drop(name)}
+                  title="Take this picture out of the cell"
+                  aria-label="Take this picture out of the cell"
+                  className="absolute -right-1.5 -top-1.5 rounded-full bg-[#B3261E] p-0.5 text-white shadow transition-colors hover:bg-[#8E1D18]"
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
 
-      <div className="flex flex-wrap items-center gap-1.5">
-        <button
-          type="button"
-          onClick={() => fileRef.current?.click()}
-          disabled={busy || images.length >= MAX_CELL_IMAGES}
-          className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-white/10 ${LINE} ${SOLID}`}
-        >
-          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
-          Add a picture
-        </button>
+        {/* Written as it will be read — the same surface a plain text cell uses,
+            showing the bold word bold and never the markers that make it. */}
+        <RichCellEditor
+          ref={field}
+          value={stored}
+          max={CELL_MAX_LENGTH}
+          onChange={setDraft}
+          label={`${column.name} — what this cell says`}
+          // The same marks as a plain text cell, on the same keys. Handled here
+          // rather than on the panel, which is only listening for the two ways
+          // out of it — and Ctrl+Enter, one of those two, is let through.
+          onKeyDown={(event) => {
+            const command = shortcutCommand(event);
 
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          className="sr-only"
-          onChange={(event) => {
-            const file = event.target.files?.[0];
-            event.target.value = '';
-            void keep(file ?? null);
+            if (command) {
+              event.preventDefault();
+              field.current?.run(command);
+              return;
+            }
+
+            if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey) {
+              event.preventDefault();
+              field.current?.breakLine();
+            }
           }}
+          className={`max-h-64 w-full overflow-auto whitespace-pre-wrap break-words rounded-lg border bg-white/70 px-2 py-1.5 text-sm transition-colors focus:border-[#FF4D8E]/50 focus:ring-2 focus:ring-[#FF4D8E]/20 dark:bg-white/5 ${LINE} ${SOLID}`}
         />
 
-        {/* The keystroke is on the cell behind this panel, where a hand that
-            has already opened the cell cannot reach it — and a keystroke
-            nobody guesses is a feature nobody has. It says what it takes,
-            because "copy" beside a picture would read as copying the
-            picture. */}
-        <button
-          type="button"
-          onClick={copy}
-          title="Copy this whole cell — its writing and its pictures — to put on another Text & pictures cell (Ctrl+C on the cell itself)"
-          className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-white/10 ${LINE} ${
-            justCopied ? 'text-[#D81B60] dark:text-[#FF9EC1]' : SOLID
-          }`}
-        >
-          {justCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
-          {justCopied ? 'Copied' : 'Copy cell'}
-        </button>
+        <FormatToolbar editor={field} />
 
-        <PictureFolderButton
-          className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${LINE}`}
-        />
+        <div className="flex flex-wrap items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => fileRef.current?.click()}
+            disabled={busy || images.length >= MAX_CELL_IMAGES}
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-white/10 ${LINE} ${SOLID}`}
+          >
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ImagePlus className="h-3.5 w-3.5" />}
+            Add a picture
+          </button>
+
+          <input
+            ref={fileRef}
+            type="file"
+            accept="image/*"
+            className="sr-only"
+            onChange={(event) => {
+              const file = event.target.files?.[0];
+              event.target.value = '';
+              void keep(file ?? null);
+            }}
+          />
+
+          {/* The keystroke is on the cell behind this panel, where a hand that
+              has already opened the cell cannot reach it — and a keystroke
+              nobody guesses is a feature nobody has. It says what it takes,
+              because "copy" beside a picture would read as copying the
+              picture. */}
+          <button
+            type="button"
+            onClick={copy}
+            title="Copy this whole cell — its writing and its pictures — to put on another Text & pictures cell (Ctrl+C on the cell itself)"
+            className={`inline-flex items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors hover:bg-black/5 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-white/10 ${LINE} ${
+              justCopied ? 'text-[#D81B60] dark:text-[#FF9EC1]' : SOLID
+            }`}
+          >
+            {justCopied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
+            {justCopied ? 'Copied' : 'Copy cell'}
+          </button>
+
+          <PictureFolderButton
+            className={`inline-flex shrink-0 items-center gap-1.5 rounded-lg border px-2 py-1.5 text-xs font-medium transition-colors hover:bg-black/5 dark:hover:bg-white/10 ${LINE}`}
+          />
+        </div>
+
+        {notice ? (
+          <p className="text-xs text-[#B3261E] dark:text-[#FFB4AB]">{notice}</p>
+        ) : (
+          <p className={`text-[11px] ${MUTED}`}>
+            {folder.status === 'ready'
+              ? `Ctrl+B is bold and Ctrl+Alt+1 a title. Ctrl+V drops a snip straight in. ${folderMessage(folder)}`
+              : folderMessage(folder)}
+          </p>
+        )}
       </div>
-
-      {notice ? (
-        <p className="text-xs text-[#B3261E] dark:text-[#FFB4AB]">{notice}</p>
-      ) : (
-        <p className={`text-[11px] ${MUTED}`}>
-          {folder.status === 'ready'
-            ? `Ctrl+B is bold and Ctrl+Alt+1 a title. Ctrl+V drops a snip straight in. ${folderMessage(folder)}`
-            : folderMessage(folder)}
-        </p>
-      )}
-    </div>
+    </Floating>
   );
 }
