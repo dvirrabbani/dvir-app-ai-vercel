@@ -404,6 +404,42 @@ is what left the two buttons hanging over the cell's own border. The `<th>`
 takes its width from the constant rather than restating it in a class, since
 that number and the one the table declares have to be the same.
 
+A column is also **dragged where it should go**, by that same ⋮
+(`reorderColumn`, `startColumnDrag`). The one button is both because a heading
+90px wide has room for the sort arrow, the name and one control more, and the
+name is what a heading is for: the pointer going down starts nothing, and only
+once it has travelled `COLUMN_DRAG_THRESHOLD` does the press become a drag —
+a press that never moves opens the menu exactly as before, the menu telling the
+click apart from the drag by a ref rather than by anything the grid knows. Move
+left and Move right stay in the menu, being the same thing from the keyboard.
+What is stored is a **gap** rather than a place — 0 in front of the first column,
+`columns.length` past the last — because a heading is put down *between* two
+columns, and that describes the same landing whichever way it is travelling;
+the two gaps either side of where a column already is are refused rather than
+written. The gaps are measured off the headings on the screen (`COLUMN_MARK`)
+rather than off the stored widths, the last column being stretched by the filler
+beside it and a table scrolled halfway across having nothing to do with either.
+Nothing under the column moves with it: cells, pictures, writing, filters and
+the sort all name their column by id. Held near either end of the scroll box the
+table creeps along under the drag (`COLUMN_DRAG_EDGE`), or a column could only
+be moved as far as the window happens to show; Escape mid-drag puts it back, in
+the capture phase so it unwinds the drag rather than the cell the cursor is on.
+
+The same move is in that menu as **Move to…**, for the times a drag is the wrong
+tool — moving the last of a dozen columns to the front is otherwise eleven
+presses of Move left. It swaps the menu's own contents for the numbered places
+(`placing`) rather than flying a second menu out beside it: this one is already
+placed by hand against a button and capped at the room below it, and a menu
+hanging off its side would have to be placed against *that*, on whichever side
+the window happened to have room. `moveColumnTo` is the gap arithmetic said the
+other way round — `at` is where the column ends up, counted from 0, which is
+what a list of places can ask for — and the two are separate functions because
+"the third column" and "the gap after the second" are different questions, not
+because they do different things. Each place is numbered and carries whatever
+column is standing there now, the one you opened the menu from marked and
+disabled; the panel goes back to the ordinary face whenever the menu closes, so
+it never re-opens halfway through a move nobody finished.
+
 A **whole table** goes again the same way (`duplicateTable`, the Duplicate button
 beside Delete): the columns with their types and lists of choices, every cell as
 the string it holds, and the *view* — the filters, the sort, the sticky

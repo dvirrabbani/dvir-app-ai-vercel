@@ -204,7 +204,11 @@ function HowToUse() {
           the bottom, <strong className="font-medium">Alt+Enter</strong> (or Shift+Enter) breaks the line
           inside the cell, <strong className="font-medium">Tab</strong> goes across, arrows move,{' '}
           <strong className="font-medium">Esc</strong> puts back what was there. Drag the line between two
-          headings to resize a column.
+          headings to resize a column, and drag the <strong className="font-medium">⋮</strong> beside a
+          heading to move the column somewhere else — a line shows where it will land, and Esc while
+          dragging leaves it where it was. That same menu holds{' '}
+          <strong className="font-medium">Move to…</strong>, which lists the places a column can take and
+          puts it in the one you pick.
         </p>
 
         <p>
