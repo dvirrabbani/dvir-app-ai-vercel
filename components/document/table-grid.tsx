@@ -76,6 +76,7 @@ import {
 } from '@/lib/documents';
 import { discardTableImages } from '@/lib/image-folder';
 import { shortcutCommand } from '@/lib/rich-text';
+import { Floating } from '@/components/document/floating';
 import { NoteCellBody, NoteEditor } from '@/components/document/cell-note';
 import {
   CellNotePanel,
@@ -255,6 +256,11 @@ function HeaderMenu({
   const open = anchor !== null;
   const box = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
+  // The menu is rendered through `Floating`, into the body, so it is no longer
+  // inside `box` in the DOM and a click in it is no longer `contains`ed by the
+  // wrapper. It needs a ref of its own for the click-away to tell it apart from
+  // the page behind.
+  const menu = useRef<HTMLDivElement>(null);
 
   /** Whether the gesture that is ending was a drag rather than a press. A
    *  pointer let go after a drag still fires a click on this button, and a menu
@@ -282,9 +288,12 @@ function HeaderMenu({
     if (!open) return;
 
     const away = (event: MouseEvent) => {
-      // The menu is out of flow but still inside this wrapper in the DOM, so a
-      // click in it is still "contained" and the check needs nothing more.
-      if (!box.current?.contains(event.target as Node)) close();
+      // Two boxes rather than one: the wrapper, which is how the trigger counts
+      // as its own toggle rather than as a click away, and the menu itself,
+      // which lives in the body now and is inside neither.
+      const target = event.target as Node;
+      if (box.current?.contains(target) || menu.current?.contains(target)) return;
+      close();
     };
 
     document.addEventListener('mousedown', away);
@@ -345,208 +354,211 @@ function HeaderMenu({
       </button>
 
       {open && (
-        <div
-          style={place}
-          className={`fixed z-50 overflow-y-auto overscroll-contain rounded-xl border bg-white p-1 shadow-lg dark:bg-[#26262A] ${LINE}`}
-        >
-          {/* The places this column could take, which is the drag done from a
-              list: the numbers are where it would end up, and the name beside
-              each is whatever is standing there now. Picking one is the same
-              move — everything between shuffles along — so the column already
-              at that place is not displaced, only pushed along by one. */}
-          {placing ? (
-            <>
-              <button
-                type="button"
-                onClick={() => setPlacing(false)}
-                className={`${item} ${MUTED}`}
-              >
-                <CornerUpLeft className="h-3.5 w-3.5 shrink-0" />
-                Back
-              </button>
-
-              <p className={`px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide ${MUTED}`}>
-                Move {column.name} to
-              </p>
-
-              {table.columns.map((other, place) => {
-                const here = place === index;
-
-                return (
-                  <button
-                    key={other.id}
-                    type="button"
-                    disabled={here}
-                    onClick={() => {
-                      moveColumnTo(table.id, column.id, place);
-                      close();
-                    }}
-                    title={here ? `${column.name} is already the ${ordinal(place + 1)} column` : `Make ${column.name} the ${ordinal(place + 1)} column`}
-                    className={`${item} ${here ? MUTED : SOLID}`}
-                  >
-                    <span className="w-4 shrink-0 text-right tabular-nums">{place + 1}</span>
-                    <span className="truncate" dir="auto">
-                      {other.name}
-                    </span>
-                    {here && <span className="ml-auto shrink-0 text-[10px]">this one</span>}
-                  </button>
-                );
-              })}
-            </>
-          ) : (
-            <>
-              <p className={`px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide ${MUTED}`}>
-                Holds
-              </p>
-              {COLUMN_TYPES.map((type) => (
+        <Floating>
+          <div
+            ref={menu}
+            style={place}
+            className={`fixed z-50 overflow-y-auto overscroll-contain rounded-xl border bg-white p-1 shadow-lg dark:bg-[#26262A] ${LINE}`}
+          >
+            {/* The places this column could take, which is the drag done from a
+                list: the numbers are where it would end up, and the name beside
+                each is whatever is standing there now. Picking one is the same
+                move — everything between shuffles along — so the column already
+                at that place is not displaced, only pushed along by one. */}
+            {placing ? (
+              <>
                 <button
-                  key={type}
                   type="button"
-                  onClick={() => {
-                    updateColumn(table.id, column.id, { type });
-                    close();
-
-                    // A column that has just been told it holds choices off a
-                    // list, and has no list, is a column of nothing you can
-                    // pick — so the list opens rather than leaving somebody to
-                    // find it.
-                    if (picksFromList(type) && column.options.length === 0) {
-                      const at = box.current?.getBoundingClientRect();
-                      if (at) onEditList(at);
-                    }
-                  }}
-                  className={`${item} ${column.type === type ? 'font-semibold text-[#D81B60] dark:text-[#FF9EC1]' : SOLID}`}
+                  onClick={() => setPlacing(false)}
+                  className={`${item} ${MUTED}`}
                 >
-                  {COLUMN_TYPE_LABELS[type]}
+                  <CornerUpLeft className="h-3.5 w-3.5 shrink-0" />
+                  Back
                 </button>
-              ))}
 
-              <div className={`my-1 border-t ${LINE}`} />
+                <p className={`px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide ${MUTED}`}>
+                  Move {column.name} to
+                </p>
 
-              {picksFromList(column.type) && (
+                {table.columns.map((other, place) => {
+                  const here = place === index;
+
+                  return (
+                    <button
+                      key={other.id}
+                      type="button"
+                      disabled={here}
+                      onClick={() => {
+                        moveColumnTo(table.id, column.id, place);
+                        close();
+                      }}
+                      title={here ? `${column.name} is already the ${ordinal(place + 1)} column` : `Make ${column.name} the ${ordinal(place + 1)} column`}
+                      className={`${item} ${here ? MUTED : SOLID}`}
+                    >
+                      <span className="w-4 shrink-0 text-right tabular-nums">{place + 1}</span>
+                      <span className="truncate" dir="auto">
+                        {other.name}
+                      </span>
+                      {here && <span className="ml-auto shrink-0 text-[10px]">this one</span>}
+                    </button>
+                  );
+                })}
+              </>
+            ) : (
+              <>
+                <p className={`px-2 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-wide ${MUTED}`}>
+                  Holds
+                </p>
+                {COLUMN_TYPES.map((type) => (
+                  <button
+                    key={type}
+                    type="button"
+                    onClick={() => {
+                      updateColumn(table.id, column.id, { type });
+                      close();
+
+                      // A column that has just been told it holds choices off a
+                      // list, and has no list, is a column of nothing you can
+                      // pick — so the list opens rather than leaving somebody to
+                      // find it.
+                      if (picksFromList(type) && column.options.length === 0) {
+                        const at = box.current?.getBoundingClientRect();
+                        if (at) onEditList(at);
+                      }
+                    }}
+                    className={`${item} ${column.type === type ? 'font-semibold text-[#D81B60] dark:text-[#FF9EC1]' : SOLID}`}
+                  >
+                    {COLUMN_TYPE_LABELS[type]}
+                  </button>
+                ))}
+
+                <div className={`my-1 border-t ${LINE}`} />
+
+                {picksFromList(column.type) && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const at = box.current?.getBoundingClientRect();
+                      close();
+                      if (at) onEditList(at);
+                    }}
+                    className={`${item} ${SOLID}`}
+                  >
+                    <List className="h-3.5 w-3.5 shrink-0" />
+                    Edit the list
+                  </button>
+                )}
+
                 <button
                   type="button"
                   onClick={() => {
-                    const at = box.current?.getBoundingClientRect();
+                    onFilter();
                     close();
-                    if (at) onEditList(at);
                   }}
                   className={`${item} ${SOLID}`}
                 >
-                  <List className="h-3.5 w-3.5 shrink-0" />
-                  Edit the list
+                  <FilterIcon className="h-3.5 w-3.5 shrink-0" />
+                  Filter by this column
                 </button>
-              )}
 
-              <button
-                type="button"
-                onClick={() => {
-                  onFilter();
-                  close();
-                }}
-                className={`${item} ${SOLID}`}
-              >
-                <FilterIcon className="h-3.5 w-3.5 shrink-0" />
-                Filter by this column
-              </button>
+                {/* A new column beside this one rather than at the far end. The +
+                    in the corner still adds at the end, which is where a column
+                    is usually wanted; this is for the one that belongs next to
+                    something. */}
+                <button
+                  type="button"
+                  disabled={full}
+                  onClick={() => {
+                    addColumn(table.id, { at: index });
+                    close();
+                  }}
+                  title={full ? `A table holds ${MAX_COLUMNS} columns` : `Add a column before ${column.name}`}
+                  className={`${item} ${SOLID}`}
+                >
+                  <ArrowLeftToLine className="h-3.5 w-3.5 shrink-0" />
+                  Insert column left
+                </button>
+                <button
+                  type="button"
+                  disabled={full}
+                  onClick={() => {
+                    addColumn(table.id, { at: index + 1 });
+                    close();
+                  }}
+                  title={full ? `A table holds ${MAX_COLUMNS} columns` : `Add a column after ${column.name}`}
+                  className={`${item} ${SOLID}`}
+                >
+                  <ArrowRightToLine className="h-3.5 w-3.5 shrink-0" />
+                  Insert column right
+                </button>
 
-              {/* A new column beside this one rather than at the far end. The +
-                  in the corner still adds at the end, which is where a column
-                  is usually wanted; this is for the one that belongs next to
-                  something. */}
-              <button
-                type="button"
-                disabled={full}
-                onClick={() => {
-                  addColumn(table.id, { at: index });
-                  close();
-                }}
-                title={full ? `A table holds ${MAX_COLUMNS} columns` : `Add a column before ${column.name}`}
-                className={`${item} ${SOLID}`}
-              >
-                <ArrowLeftToLine className="h-3.5 w-3.5 shrink-0" />
-                Insert column left
-              </button>
-              <button
-                type="button"
-                disabled={full}
-                onClick={() => {
-                  addColumn(table.id, { at: index + 1 });
-                  close();
-                }}
-                title={full ? `A table holds ${MAX_COLUMNS} columns` : `Add a column after ${column.name}`}
-                className={`${item} ${SOLID}`}
-              >
-                <ArrowRightToLine className="h-3.5 w-3.5 shrink-0" />
-                Insert column right
-              </button>
+                <button
+                  type="button"
+                  disabled={index === 0}
+                  onClick={() => {
+                    moveColumn(table.id, column.id, -1);
+                    close();
+                  }}
+                  className={`${item} ${SOLID}`}
+                >
+                  <ChevronLeft className="h-3.5 w-3.5 shrink-0" />
+                  Move left
+                </button>
+                <button
+                  type="button"
+                  disabled={index === table.columns.length - 1}
+                  onClick={() => {
+                    moveColumn(table.id, column.id, 1);
+                    close();
+                  }}
+                  className={`${item} ${SOLID}`}
+                >
+                  <ChevronRight className="h-3.5 w-3.5 shrink-0" />
+                  Move right
+                </button>
 
-              <button
-                type="button"
-                disabled={index === 0}
-                onClick={() => {
-                  moveColumn(table.id, column.id, -1);
-                  close();
-                }}
-                className={`${item} ${SOLID}`}
-              >
-                <ChevronLeft className="h-3.5 w-3.5 shrink-0" />
-                Move left
-              </button>
-              <button
-                type="button"
-                disabled={index === table.columns.length - 1}
-                onClick={() => {
-                  moveColumn(table.id, column.id, 1);
-                  close();
-                }}
-                className={`${item} ${SOLID}`}
-              >
-                <ChevronRight className="h-3.5 w-3.5 shrink-0" />
-                Move right
-              </button>
+                {/* Somewhere in particular, rather than one place at a time: on a
+                    table of a dozen columns, moving the last one to the front is
+                    eleven presses of Move left. */}
+                <button
+                  type="button"
+                  disabled={table.columns.length < 2}
+                  onClick={() => setPlacing(true)}
+                  title={`Move ${column.name} to a place you pick`}
+                  className={`${item} ${SOLID}`}
+                >
+                  <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" />
+                  Move to…
+                </button>
 
-              {/* Somewhere in particular, rather than one place at a time: on a
-                  table of a dozen columns, moving the last one to the front is
-                  eleven presses of Move left. */}
-              <button
-                type="button"
-                disabled={table.columns.length < 2}
-                onClick={() => setPlacing(true)}
-                title={`Move ${column.name} to a place you pick`}
-                className={`${item} ${SOLID}`}
-              >
-                <ArrowLeftRight className="h-3.5 w-3.5 shrink-0" />
-                Move to…
-              </button>
+                <div className={`my-1 border-t ${LINE}`} />
 
-              <div className={`my-1 border-t ${LINE}`} />
-
-              <button
-                type="button"
-                disabled={table.columns.length <= 1}
-                onClick={() => {
-                  // What was under this column, gathered before it goes:
-                  // afterwards there is nothing left to say which files it was
-                  // holding.
-                  const names = imageNamesIn(table.rows, column.id);
-                  deleteColumn(table.id, column.id);
-                  if (names.length > 0) void discardTableImages(names);
-                  close();
-                }}
-                title={
-                  table.columns.length <= 1
-                    ? 'A table keeps at least one column'
-                    : `Delete ${column.name} and everything in it`
-                }
-                className={`${item} text-[#B3261E] dark:text-[#FFB4AB]`}
-              >
-                <Trash2 className="h-3.5 w-3.5 shrink-0" />
-                Delete column
-              </button>
-            </>
-          )}
-        </div>
+                <button
+                  type="button"
+                  disabled={table.columns.length <= 1}
+                  onClick={() => {
+                    // What was under this column, gathered before it goes:
+                    // afterwards there is nothing left to say which files it was
+                    // holding.
+                    const names = imageNamesIn(table.rows, column.id);
+                    deleteColumn(table.id, column.id);
+                    if (names.length > 0) void discardTableImages(names);
+                    close();
+                  }}
+                  title={
+                    table.columns.length <= 1
+                      ? 'A table keeps at least one column'
+                      : `Delete ${column.name} and everything in it`
+                  }
+                  className={`${item} text-[#B3261E] dark:text-[#FFB4AB]`}
+                >
+                  <Trash2 className="h-3.5 w-3.5 shrink-0" />
+                  Delete column
+                </button>
+              </>
+            )}
+          </div>
+        </Floating>
       )}
     </div>
   );
@@ -1035,45 +1047,47 @@ function RowMenu({
   const title = full ? `A table holds ${MAX_ROWS} rows` : undefined;
 
   return (
-    <div
-      ref={box}
-      style={{ left, top, width: ROW_MENU_WIDTH }}
-      className={`fixed z-50 rounded-xl border bg-white p-1 shadow-lg dark:bg-[#26262A] ${LINE}`}
-    >
-      <button
-        type="button"
-        disabled={full}
-        onClick={() => onInsert('above')}
-        title={title}
-        className={`${item} ${SOLID}`}
+    <Floating>
+      <div
+        ref={box}
+        style={{ left, top, width: ROW_MENU_WIDTH }}
+        className={`fixed z-50 rounded-xl border bg-white p-1 shadow-lg dark:bg-[#26262A] ${LINE}`}
       >
-        <ArrowUpToLine className="h-3.5 w-3.5 shrink-0" />
-        Insert row above
-      </button>
-      <button
-        type="button"
-        disabled={full}
-        onClick={() => onInsert('below')}
-        title={title}
-        className={`${item} ${SOLID}`}
-      >
-        <ArrowDownToLine className="h-3.5 w-3.5 shrink-0" />
-        Insert row below
-      </button>
+        <button
+          type="button"
+          disabled={full}
+          onClick={() => onInsert('above')}
+          title={title}
+          className={`${item} ${SOLID}`}
+        >
+          <ArrowUpToLine className="h-3.5 w-3.5 shrink-0" />
+          Insert row above
+        </button>
+        <button
+          type="button"
+          disabled={full}
+          onClick={() => onInsert('below')}
+          title={title}
+          className={`${item} ${SOLID}`}
+        >
+          <ArrowDownToLine className="h-3.5 w-3.5 shrink-0" />
+          Insert row below
+        </button>
 
-      <div className={`my-1 border-t ${LINE}`} />
+        <div className={`my-1 border-t ${LINE}`} />
 
-      <button
-        type="button"
-        disabled={full}
-        onClick={onDuplicate}
-        title={title ?? `Copy row ${number} into a new row under it`}
-        className={`${item} ${SOLID}`}
-      >
-        <Copy className="h-3.5 w-3.5 shrink-0" />
-        Duplicate row
-      </button>
-    </div>
+        <button
+          type="button"
+          disabled={full}
+          onClick={onDuplicate}
+          title={title ?? `Copy row ${number} into a new row under it`}
+          className={`${item} ${SOLID}`}
+        >
+          <Copy className="h-3.5 w-3.5 shrink-0" />
+          Duplicate row
+        </button>
+      </div>
+    </Floating>
   );
 }
 

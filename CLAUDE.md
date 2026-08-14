@@ -395,14 +395,39 @@ list, the filter, the two inserts, the two moves and the bin do not fit under a
 heading on a 500px window whatever it is positioned against. The *row* menu's
 button carries `data-row-menu` so the menu's own click-away can tell a click on
 the trigger apart from a click elsewhere — closing on that mousedown would only
-have the click reopen it, and the toggle would never shut. The heading's needs no
-such mark: it is rendered inside the wrapper its button sits in, so a click in it
-is still `contains`ed even though it is out of flow. `NUMBER_COLUMN_WIDTH` is sized
+have the click reopen it, and the toggle would never shut. The heading's menu is
+watched by a ref of its own instead, since it is no longer in the DOM beside its
+trigger: it goes through `Floating` (below), and a click in it is `contains`ed by
+neither the wrapper nor the page. `NUMBER_COLUMN_WIDTH` is sized
 for all three of the things in that column at once — the number at three digits
 (a table holds 500 rows), the ⋮ and the bin — rather than for the number, which
 is what left the two buttons hanging over the cell's own border. The `<th>`
 takes its width from the constant rather than restating it in a class, since
 that number and the one the table declares have to be the same.
+
+Every one of those hand-placed panels — the heading's menu, the row's, the list
+of choices, the page written about a cell, the note editor, the picture over the
+window — is rendered into `document.body` through **`components/document/floating.tsx`**,
+and the reason is the one thing that quietly breaks `position: fixed`. A `fixed`
+element only measures from the viewport while *no ancestor* has a `filter`,
+`transform`, `perspective` or **`backdrop-filter`** on it; any of those makes that
+ancestor the containing block instead. The grid sits inside `.glass-card`, which
+is `backdrop-filter: blur(16px)` — the glass treatment itself, not an ornament to
+be dropped — so every `top` computed against the window was landing that card's
+distance down the page. The heading menu measured 433px and rendered at 722px,
+which put Move left, Move right, Move to… and Delete column past the bottom of any
+window under about 1200px, with nothing able to reach them: the page does not
+scroll, the grid scrolls in its own box, and the menu was capped at a height it
+was no longer at. `inset-0` had the same fate — the picture viewer covered the
+card rather than the window. Portalling is what makes the arithmetic true again,
+and it is where any *new* panel belongs — the blog's editor reached the same
+answer first, for the same reason, and its step panel and slash menu have gone
+through `createPortal` all along. Two things it keeps: React events still
+bubble to whatever rendered the panel, a portal moving the DOM node and not the
+React tree, so an Escape that stops itself reaching the grid still does; and
+`.dark` sits on `<html>`, above the body, so every `dark:` class carries across.
+The one thing it does not keep is `contains` — a close-on-click-away that measured
+the wrapper a trigger sits in has to hold a ref to the panel itself.
 
 A column is also **dragged where it should go**, by that same ⋮
 (`reorderColumn`, `startColumnDrag`). The one button is both because a heading
