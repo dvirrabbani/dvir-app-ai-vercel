@@ -48,6 +48,7 @@ Each feature is a matched pair of files:
 | `goals.ts` | `use-goals.ts` | `app/milestones` |
 | `documents.ts` | `use-documents.ts` | `app/document` |
 | `finance.ts` | `use-finance.ts` | `app/about/management/finance` |
+| `self-care.ts` | `use-self-care.ts` | `app/about/management/presentation`, `app/about/management/lifestyle` |
 | `contact.ts` | `use-contact.ts` | `app/contact` |
 | `backup.ts` | `use-backup.ts` | `app/backup` |
 
@@ -595,6 +596,35 @@ balance, which is everything ever logged and says so on the tile.
 every budget it has and still be a bad month, if half of it went somewhere
 nothing was planned for.
 
+`self-care.ts` is the odd one out in the other direction: it is the one feature
+whose **content is in the code rather than in storage**. The catalogue — the
+creams, the sleep, the posture, the supplements — is a `const`, not a seed,
+because `blog.ts` seeds a browser once and is thereafter unreachable, and here
+the whole point is the advice, so correcting a line has to reach every browser
+on the next load. What is stored is only what the catalogue cannot know: whether
+you have the thing, whether you actually use it, a line of your own, anything
+you added, and the weight the protein maths needs. An item taken out of the
+catalogue leaves ticks behind under an id nothing points at, and `readState`
+drops those on the way out rather than storing a migration.
+
+Its `need` tiers are the point of it: **Really needed** is the short list, and
+**Skip it** is on the list on purpose — naming what does nothing is half of
+saying what is needed, and a page that only listed good things would read as an
+advert. Those items carry no ticks at all. `CareItem.practice` marks a thing to
+*do* rather than own (posture, a caffeine cut-off); it carries one tick instead
+of two, since "have it" and "use it" are the same question about standing up
+straight. Nothing about that flag is stored — it only decides what the ticks are
+called, so an item can gain or lose it without anybody losing a tick.
+
+One catalogue, **two pages**, split by `CareGroup.page` and read through
+`groupsOnPage`/`itemsOnPage`: `/about/management/presentation` is the outward
+half (skin, body, teeth, clothes, presence) and `/about/management/lifestyle` is
+the upkeep under it (sleep, supplements, and the strength maths). Both count
+their tallies over their own groups rather than the whole catalogue — a page
+about how you look should not open by saying you are missing a vitamin — which
+is why each calls `missingEssentials` on its own slice instead of taking
+`missing` off the hook.
+
 **The storage module** owns the record types, the `'dvir-<feature>:…'` storage keys, a `<feature>-changed` custom event name, runtime type guards, and every read/write helper. Rules it follows everywhere, which new code must follow too:
 
 - Every function that touches `window` guards with `if (typeof window === 'undefined')` and returns an empty value.
@@ -617,12 +647,13 @@ Feature pages are `'use client'` (they read localStorage), so `export const meta
 
 `/about` is a **page** rather than the home page's old `#about` anchor — the home
 page renders no such section, so that link went nowhere — and it is the one route
-with pages inside pages: `/about/management` and `/about/management/finance`
-under it. Only `app/about/layout.tsx` renders the navbar; the two inner layouts
-export metadata and nothing else, since that one wraps them too and a second
-navbar would sit on the screen beside the first (the same arrangement as
-`app/routines/summary`). The navbar's nine links stop at About; Finance is in the
-footer, being the page down there worth reaching in one click rather than three.
+with pages inside pages: `/about/management` under it, and `finance`,
+`presentation` and `lifestyle` under that. Only `app/about/layout.tsx` renders
+the navbar; every inner layout exports metadata and nothing else, since that one
+wraps them too and a second navbar would sit on the screen beside the first (the
+same arrangement as `app/routines/summary`). The navbar's nine links stop at
+About; the three inner pages are in the footer instead, being the pages down
+there worth reaching in one click rather than three.
 
 `app/blog/[slug]/page.tsx` is the one server component of note, and it does nothing but await `params` and hand the slug to a client view — the post itself only exists in the reader's browser. Non-Latin slugs arrive percent-encoded and are decoded before matching (`decodeSlug`).
 
