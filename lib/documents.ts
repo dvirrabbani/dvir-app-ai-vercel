@@ -812,19 +812,6 @@ export function moveColumn(tableId: string, columnId: string, delta: -1 | 1): bo
 }
 
 /**
- * A column put down where it has been dragged to, rather than stepped one place
- * at a time. `before` is a **gap** in the columns as they stand — 0 in front of
- * the first, `columns.length` after the last — because a heading is dropped
- * between two columns rather than onto one of them, and the gap it is nearest
- * is where it lands.
- *
- * Nothing under the column has to move with it: cells, pictures and writing are
- * all kept per column id, and the filters and the sort name their column the
- * same way, so a column carries everything it holds by simply sitting somewhere
- * else in this list. The two gaps either side of where it already is are where
- * it already is, and are refused rather than written.
- */
-/**
  * The same move said the other way round: the **place** the column should end
  * up in rather than the gap it is dropped into. `at` is counted from 0 and is
  * where the column will be *afterwards*, which is what a list of places can ask
@@ -846,6 +833,19 @@ export function moveColumnTo(tableId: string, columnId: string, at: number): boo
   });
 }
 
+/**
+ * A column put down where it has been dragged to, rather than stepped one place
+ * at a time. `before` is a **gap** in the columns as they stand — 0 in front of
+ * the first, `columns.length` after the last — because a heading is dropped
+ * between two columns rather than onto one of them, and the gap it is nearest
+ * is where it lands.
+ *
+ * Nothing under the column has to move with it: cells, pictures and writing are
+ * all kept per column id, and the filters and the sort name their column the
+ * same way, so a column carries everything it holds by simply sitting somewhere
+ * else in this list. The two gaps either side of where it already is are where
+ * it already is, and are refused rather than written.
+ */
 export function reorderColumn(tableId: string, columnId: string, before: number): boolean {
   return editTable(tableId, (table) => {
     const from = table.columns.findIndex((column) => column.id === columnId);
