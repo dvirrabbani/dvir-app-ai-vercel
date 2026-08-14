@@ -9,7 +9,20 @@
       "Bash(bun run dev)",
       "Bash(git commit:*)",
       "Bash(bun add:*)",
-      "PowerShell(npx tsc --noEmit)"
+      "PowerShell(npx tsc --noEmit)",
+      "Bash(bun run dev:*)",
+      "PowerShell(bun run dev:*)",
+      "Bash(bun run lint:*)",
+      "PowerShell(bun run lint:*)",
+      "Bash(netstat:*)",
+      "PowerShell(netstat:*)",
+      "PowerShell(Get-NetTCPConnection:*)",
+      "PowerShell(Test-NetConnection:*)",
+      "PowerShell(Get-Process:*)",
+      "mcp__Claude_Browser__preview_start",
+      "mcp__Claude_Browser__preview_stop",
+      "mcp__Claude_Browser__preview_list",
+      "mcp__Claude_Browser__preview_logs"
     ]
   }
 }
