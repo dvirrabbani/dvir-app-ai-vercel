@@ -14,10 +14,38 @@
       "autoPort": false
     },
     {
+      "name": "dev-webpack",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "dev", "--", "--webpack"],
+      "port": 3000,
+      "autoPort": false
+    },
+    {
       "name": "dev-3001",
       "runtimeExecutable": "bun",
       "runtimeArgs": ["run", "dev", "--", "-p", "3001"],
       "port": 3001,
+      "autoPort": false
+    },
+    {
+      "name": "dev-3002",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "dev", "--", "-p", "3002"],
+      "port": 3002,
+      "autoPort": false
+    },
+    {
+      "name": "dev-webpack-3001",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "dev", "--", "--webpack", "-p", "3001"],
+      "port": 3001,
+      "autoPort": false
+    },
+    {
+      "name": "dev-webpack-3002",
+      "runtimeExecutable": "bun",
+      "runtimeArgs": ["run", "dev", "--", "--webpack", "-p", "3002"],
+      "port": 3002,
       "autoPort": false
     },
     {

@@ -20,7 +20,30 @@ check that a table cell's stored markers and its editing surface stay exact
 inverses. It needs no runner, and the invariant it guards is invisible until a
 cell has quietly grown a dozen underscores. See the rich-text section below.
 
-`.claude/launch.json` defines the preview configs: `dev` *attaches* to an already-running server on :3000 (it has no command, so start `bun run dev` yourself first), `dev-start` runs `bun run dev` on :3000, `dev-3001` runs the same on :3001 for when something else already holds :3000, and `prod` runs `next start -p 3100`.
+`.claude/launch.json` defines the preview configs: `dev` *attaches* to an already-running server on :3000 (it has no command, so start `bun run dev` yourself first), `dev-start` runs `bun run dev` on :3000, `dev-webpack` runs the same with `--webpack` because Turbopack never finishes compiling `/document`, `dev-3001`/`dev-3002` and `dev-webpack-3001`/`dev-webpack-3002` are the same two ladders one port up for when something else already holds :3000, and `prod` runs `next start -p 3100`.
+
+### Ports
+
+**A taken port is not a question to ask — it is a port to step past.** If :3000
+is held, start on :3001; if that is held too, :3002, and so on up. Just do it and
+say which port it landed on. Stopping to ask permission for the next number in a
+sequence is the interruption, not the courtesy: there is no wrong answer to
+choose between, and the only thing waiting achieves is that nothing is running.
+The same goes for the commands that find out — checking what holds a port is a
+read, and reads never need asking.
+
+**Whatever port Claude took, Claude gives back.** A dev server started for a
+check is stopped with `preview_stop` when the check is done, before the turn ends
+— the whole point of stepping up to :3001 is that :3000 was somebody's, and a
+server left running on :3001 makes :3001 the next person's problem in exactly the
+same way. Leave one running only when the ask was to leave it running.
+
+The one thing that is *never* automatic: **a port Claude did not start is not
+Claude's to free.** A server already on :3000 is almost always `bun run dev` in
+the user's own terminal, and killing it to take the port is destroying work to
+save a keystroke. Step up to the next port instead, or attach with the `dev`
+config, which exists for precisely that. Killing another process to claim a port
+needs asking, every time.
 
 `.env.local` (from `.env.example`) holds `NEXTAUTH_SECRET`, `NEXTAUTH_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`. Auth is optional for most pages — only `/profile` requires a session; the sign-in button in the navbar is the only other consumer.
 
