@@ -23,6 +23,12 @@ import {
   POLL_VOTES_KEY,
 } from '@/lib/poll';
 import { ROUTINES_EVENT, ROUTINES_KEY } from '@/lib/routines';
+import {
+  SELF_CARE_BODY_KEY,
+  SELF_CARE_EVENT,
+  SELF_CARE_ITEMS_KEY,
+  SELF_CARE_STATE_KEY,
+} from '@/lib/self-care';
 
 /**
  * Moving a browser's worth of data to another browser, by hand.
@@ -83,6 +89,15 @@ export const BACKUP_FEATURES: readonly BackupFeature[] = [
     label: 'Finance',
     keys: [FINANCE_TRANSACTIONS_KEY, FINANCE_BUDGETS_KEY, FINANCE_SETTINGS_KEY],
     event: FINANCE_EVENT,
+  },
+  {
+    id: 'self-care',
+    label: 'Lifestyle',
+    // The catalogue itself is a constant in code and therefore already on the
+    // other device. Only what that device cannot know travels: the ticks, the
+    // notes, anything added by hand, and the weight.
+    keys: [SELF_CARE_STATE_KEY, SELF_CARE_ITEMS_KEY, SELF_CARE_BODY_KEY],
+    event: SELF_CARE_EVENT,
   },
   { id: 'contact', label: 'Contact messages', keys: [CONTACT_KEY], event: CONTACT_EVENT },
 ];

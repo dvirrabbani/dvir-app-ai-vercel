@@ -1,6 +1,6 @@
 export const metadata = {
   title: 'Management | DVIR.AI',
-  description: 'The running of things, kept in this browser: money for now, more later.',
+  description: 'The running of things, kept in this browser: the money and the body.',
 };
 
 /**

@@ -45,7 +45,11 @@ export default function AboutPage() {
             icon={<Briefcase className="h-5 w-5" />}
             title="Management"
             description="The running of things — what has to be kept an eye on rather than read about."
-            points={['Finance: money in, money out, and what a month is meant to cost']}
+            points={[
+              'Finance: money in, money out, and what a month is meant to cost',
+              'Presentation: what changes how you look and come across, and what only sells',
+              'Lifestyle: sleep, supplements, and what to eat to get stronger',
+            ]}
           />
         </div>
       </div>
