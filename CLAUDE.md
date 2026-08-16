@@ -772,9 +772,23 @@ with pages inside pages: `/about/management` under it, and `finance`,
 `presentation` and `lifestyle` under that. Only `app/about/layout.tsx` renders
 the navbar; every inner layout exports metadata and nothing else, since that one
 wraps them too and a second navbar would sit on the screen beside the first (the
-same arrangement as `app/routines/summary`). The navbar's nine links stop at
+same arrangement as `app/routines/summary`). The navbar's six links stop at
 About; the three inner pages are in the footer instead, being the pages down
 there worth reaching in one click rather than three.
+
+`/external` is the **other** shape, and the difference matters: it is a hub with
+no pages inside it. Data (`/backup`), Contact, Calendar and Poll all keep
+their own top-level routes and their own layouts — `app/external/page.tsx` is a
+grid of `InnerLink` cards pointing at them and nothing else. Nothing was moved,
+so every link already written to `/backup` still lands, and `app/external` is
+free of the second-navbar problem entirely: it wraps none of them. What it is
+*for* is the navbar, which was ten links long and is now six; the four it
+gathers have in common that none is only about the person sitting here — a file
+leaving for another device, a message for somebody, days shared with other
+diaries, an answer somebody else gives. It is a way in rather than a claim about
+storage: all four are the same localStorage as everything else. All four stay in
+the footer as well, exactly as the three inside About do, since a hub is a click
+and reaching a page in one beats two.
 
 `app/blog/[slug]/page.tsx` is the one server component of note, and it does nothing but await `params` and hand the slug to a client view — the post itself only exists in the reader's browser. Non-Latin slugs arrive percent-encoded and are decoded before matching (`decodeSlug`).
 
