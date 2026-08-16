@@ -45,6 +45,7 @@ import {
   folderMessage,
   imageFrom,
   keepPicture,
+  picturesWork,
   useFolderState,
 } from '@/components/document/picture-folder';
 import { Floating } from '@/components/document/floating';
@@ -507,7 +508,7 @@ export function NoteEditor({
           <p className="text-xs text-[#B3261E] dark:text-[#FFB4AB]">{notice}</p>
         ) : (
           <p className={`text-[11px] ${MUTED}`}>
-            {folder.status === 'ready'
+            {picturesWork(folder)
               ? `Ctrl+B is bold and Ctrl+Alt+1 a title. Ctrl+V drops a snip straight in. ${folderMessage(folder)}`
               : folderMessage(folder)}
           </p>

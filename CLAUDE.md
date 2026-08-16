@@ -79,7 +79,9 @@ Each feature is a matched pair of files:
 every *other* feature's keys and events, so a browser's whole store can be written
 to one JSON file and read back on another device — the only way two devices share
 anything, there being no server. Adding a feature means adding it to
-`BACKUP_FEATURES` too, or it silently stops travelling.
+`BACKUP_FEATURES` too, or it silently stops travelling. The one thing it cannot
+carry is the pictures, which are file names in storage and bytes somewhere else;
+those travel by `lib/drive-images.ts` instead (see the `note` column below).
 
 That file can also be fetched straight out of Google Drive
 (`lib/google-drive.ts`), which is **not** a backend appearing after all: Google's
@@ -335,6 +337,41 @@ no other cell and no post — still points at; that is what makes a duplicated
 row, which points at the very same files, safe. `components/document/picture-folder.tsx`
 holds the folder controls (its own copy: the blog's live inside the post
 editor's toolbar) and `keepPicture`, which is where every refusal is worded.
+
+That folder is reachable by one browser on one computer, so there is a second
+place a picture goes: **`lib/drive-images.ts`, a folder in the visitor's own
+Google Drive**, which is the only way a screenshot pasted at a desk is on a
+phone afterwards. The File System Access API is desktop-Chromium-only and a
+phone has no filesystem to point it at, so pointing the local folder at a synced
+Drive folder does nothing — the sync happens below the browser, where the phone
+cannot follow.
+
+The two are **not alternatives**, and the arrangement rests on one fact: a post
+or a cell only ever stores the *file name*, so the same name is the same picture
+in both folders. `saveImage`, `readImage` and `deleteImage` in `image-folder.ts`
+are the one door everything goes through and each consults both — a write goes
+to the local folder for speed and to Drive so the other device has it, and
+either succeeding is enough, which is what lets a phone (no local folder ever)
+and a desktop with no Drive connected both carry on. A read tries local first
+because it is instant, offline and costs nobody a token. The name is minted
+*before* either write rather than by whichever store took it, or one paste would
+be two pictures and one of them unreachable.
+
+It is still no backend: `drive.file` is the same narrow scope the backup file
+uses, and it covers files **the app made** as well as files picked by hand,
+which is what lets the folder be listed, added to and swept without asking for
+anything wider. The folder is found by *name* (`DRIVE_FOLDER_NAME`), the stored
+id being only a shortcut that is re-checked and re-found — that is what makes a
+second device work with nothing copied to it. The token is `lib/google-drive.ts`'s
+one per tab, shared with the backup picker, so connecting is one permission
+window rather than two, and it never reaches storage: **a reload always lands
+disconnected**, which is why the toolbar button turns amber and says
+"Connect Drive" rather than the pictures merely being absent. `sendPicturesToDrive`
+is the catch-up for everything pasted before Drive was connected; it is a button
+rather than automatic, since it is somebody's Drive and possibly a hundred files,
+and it only considers names something still points at. Deleting removes a picture
+from both, but to Drive's *bin* rather than outright — a sweep can run on a device
+whose tables came from a fortnight-old backup.
 
 A picture is **never stored at less than its full resolution** — `saveImage`
 writes the blob it was handed — so how readable one is is only ever a question
