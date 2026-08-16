@@ -6,16 +6,20 @@ import { Github, Linkedin, Twitter, Mail } from 'lucide-react';
 const footerLinks = [
   { href: '/about', label: 'About' },
   // Three clicks deep inside About, and the pages there worth reaching in one —
-  // which is why they are in the footer and not in the navbar's nine.
+  // which is why they are in the footer and not in the navbar's six.
   { href: '/about/management/finance', label: 'Finance' },
   { href: '/about/management/presentation', label: 'Presentation' },
   { href: '/about/management/lifestyle', label: 'Lifestyle' },
-  { href: '/calendar', label: 'Calendar' },
   { href: '/routines', label: 'Routines' },
   { href: '#insights', label: 'AI & Dev' },
   { href: '/document', label: 'Documents' },
+  { href: '/external', label: 'External' },
+  // The four behind External, listed here for the same reason the three inside
+  // About are: the hub is one click, and reaching a page in one beats two.
   { href: '/backup', label: 'Data' },
   { href: '/contact', label: 'Contact' },
+  { href: '/calendar', label: 'Calendar' },
+  { href: '/poll', label: 'Poll' },
 ];
 
 // Point home until the real accounts exist — see the note in cta-section.tsx.
@@ -71,8 +75,8 @@ export function Footer() {
           </div>
 
           {/* Navigation Links */}
-          {/* Wrapping, and a smaller gap: ten links in one unwrapped row ran
-              off the side of a phone long before the tenth was added. */}
+          {/* Wrapping, and a smaller gap: thirteen links in one unwrapped row
+              ran off the side of a phone long before the tenth was added. */}
           <nav className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3">
             {footerLinks.map((link) => (
               <Link

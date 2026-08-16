@@ -17,6 +17,7 @@
  */
 
 import { useEffect, useSyncExternalStore } from 'react';
+import { DRIVE_IMAGES_EVENT } from '@/lib/drive-images';
 import { IMAGE_FOLDER_EVENT, readImage } from '@/lib/image-folder';
 
 /** File name → the blob URL standing in for it. */
@@ -46,7 +47,12 @@ function announce() {
   for (const listener of listeners) listener();
 }
 
-/** A different folder means different files, so everything is read afresh. */
+/**
+ * A different folder means different files, so everything is read afresh. Drive
+ * being connected counts as one: every name that came back `missing` because
+ * there was nowhere to read it from is worth another try, and on a phone that
+ * is every picture on the page.
+ */
 function refresh() {
   for (const url of urls.values()) URL.revokeObjectURL(url);
   urls.clear();
@@ -62,12 +68,14 @@ function subscribe(onChange: () => void) {
   // Only the first subscriber wires this up; the last one takes it down again.
   if (listeners.size === 1 && typeof window !== 'undefined') {
     window.addEventListener(IMAGE_FOLDER_EVENT, refresh);
+    window.addEventListener(DRIVE_IMAGES_EVENT, refresh);
   }
 
   return () => {
     listeners.delete(onChange);
     if (listeners.size === 0 && typeof window !== 'undefined') {
       window.removeEventListener(IMAGE_FOLDER_EVENT, refresh);
+      window.removeEventListener(DRIVE_IMAGES_EVENT, refresh);
     }
   };
 }

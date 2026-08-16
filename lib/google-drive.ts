@@ -57,6 +57,16 @@ export function driveConfigured(): boolean {
 }
 
 /**
+ * Only the client id, which is all that is needed to *ask for a token* and talk
+ * to Drive directly. The developer key above belongs to the Picker and nothing
+ * else, so the pictures in `lib/drive-images.ts` — which never open the Picker,
+ * every file there being one this app made — are configured by this instead.
+ */
+export function driveSignInConfigured(): boolean {
+  return CLIENT_ID !== '';
+}
+
+/**
  * The Cloud project number, which the Picker needs to hand a `drive.file` app
  * access to what was picked. It is the part of the client id before the dash,
  * so it is not worth a third environment variable to state twice.
@@ -223,6 +233,17 @@ export function prepareDrivePicker(): void {
   void loadScript(GSI_SRC).catch(() => {});
 }
 
+/**
+ * The same head start for something that only needs the token. The Picker is a
+ * second script and a second API to have enabled, and the pictures never open
+ * it — they read and write files this app made, which is what `drive.file`
+ * grants without anything being picked by hand.
+ */
+export function prepareDriveSignIn(): void {
+  if (!driveSignInConfigured() || !driveWindow()) return;
+  void loadScript(GSI_SRC).catch(() => {});
+}
+
 /* -------------------------------------------------------------------------- */
 /*  The token                                                                 */
 /* -------------------------------------------------------------------------- */
@@ -238,6 +259,30 @@ let token: { value: string; expiresAt: number } | null = null;
 function liveToken(): string | null {
   if (!token) return null;
   return token.expiresAt - 60_000 > Date.now() ? token.value : null;
+}
+
+/**
+ * The token this tab is holding, or null. There is one for the whole tab rather
+ * than one per feature: the backup file and the pictures are the same Drive
+ * under the same scope, and two of them would be two permission windows for the
+ * one answer.
+ */
+export function driveToken(): string | null {
+  return liveToken();
+}
+
+/** Ask for a token. Must be called from a click — the window is a pop-up otherwise. */
+export function requestDriveToken(): Promise<string | null> {
+  return requestToken();
+}
+
+/**
+ * Drop it. Called when Drive answers 401 — the token being the likely suspect —
+ * and when somebody disconnects, which has to leave nothing behind that a later
+ * fetch could still succeed with.
+ */
+export function forgetDriveToken(): void {
+  token = null;
 }
 
 /** Null when the person closed the popup rather than something going wrong. */

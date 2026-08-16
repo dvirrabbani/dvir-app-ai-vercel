@@ -47,6 +47,7 @@ import {
   unwrapTables,
   wrapTables,
 } from '@/lib/local-posts';
+import { driveImagesStatus } from '@/lib/drive-images';
 import {
   FolderStatus,
   IMAGE_FOLDER_EVENT,
@@ -1083,8 +1084,16 @@ export function RichTextEditor({
         const blob = image.getAsFile();
         if (!blob) return;
 
-        if (!folderSupported()) {
-          setFolderNotice('Pasting images needs Chrome or Edge — this browser cannot write to a folder.');
+        // Drive counts as somewhere to put it. The controls for connecting it
+        // are on the document page rather than in this toolbar, but the
+        // connection is the tab's rather than that page's, so a browser with no
+        // folder of its own — every phone — can still paste a screenshot here.
+        const onDrive = driveImagesStatus() === 'connected';
+
+        if (!folderSupported() && !onDrive) {
+          setFolderNotice(
+            'Pasting images needs Chrome or Edge, or Google Drive connected — this browser cannot write to a folder.'
+          );
           return;
         }
 
@@ -1092,7 +1101,7 @@ export function RichTextEditor({
         const range = selection && selection.rangeCount > 0 ? selection.getRangeAt(0).cloneRange() : null;
 
         void folderStatus().then((status) => {
-          if (status !== 'ready') {
+          if (status !== 'ready' && !onDrive) {
             setFolderNotice(
               status === 'none'
                 ? 'Choose a folder to keep pasted images in first.'

@@ -20,14 +20,15 @@ const navLinks = [
   // A page of its own rather than an anchor: the home page renders no `#about`
   // section, and Management and Finance are kept inside it.
   { href: '/about', label: 'About' },
-  { href: '/calendar', label: 'Calendar' },
   { href: '/routines', label: 'Routines' },
   { href: '/blog', label: 'Blog' },
-  { href: '/poll', label: 'Poll' },
   { href: '/milestones', label: 'Milestones' },
   { href: '/document', label: 'Documents' },
-  { href: '/backup', label: 'Data' },
-  { href: '/contact', label: 'Contact' },
+  // The other end of the same arrangement: Data, Contact, Calendar and Poll are
+  // gathered behind this one link rather than taking four of their own.
+  // They keep their top-level routes, so every link already written to them
+  // still lands — External is a way in, not a parent.
+  { href: '/external', label: 'External' },
 ];
 
 function ThemeToggle() {

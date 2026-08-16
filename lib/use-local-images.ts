@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import { DRIVE_IMAGES_EVENT } from '@/lib/drive-images';
 import { IMAGE_FOLDER_EVENT, readImage } from '@/lib/image-folder';
 import { LOCAL_IMAGE_PREFIX, localImageName } from '@/lib/local-posts';
 
@@ -165,6 +166,8 @@ export function useLocalImages(container: React.RefObject<HTMLElement | null>) {
     observer.observe(root, { childList: true, subtree: true });
 
     // A different folder means different files, so everything is read afresh.
+    // Drive connecting is the same event in every way that matters here: a
+    // picture that was unreadable a moment ago has just become readable.
     const onFolderChange = () => {
       for (const url of urls.values()) URL.revokeObjectURL(url);
       urls.clear();
@@ -172,12 +175,14 @@ export function useLocalImages(container: React.RefObject<HTMLElement | null>) {
       schedule();
     };
     window.addEventListener(IMAGE_FOLDER_EVENT, onFolderChange);
+    window.addEventListener(DRIVE_IMAGES_EVENT, onFolderChange);
 
     return () => {
       cancelled = true;
       if (timer !== undefined) window.clearTimeout(timer);
       observer.disconnect();
       window.removeEventListener(IMAGE_FOLDER_EVENT, onFolderChange);
+      window.removeEventListener(DRIVE_IMAGES_EVENT, onFolderChange);
       for (const url of urls.values()) URL.revokeObjectURL(url);
       urls.clear();
     };

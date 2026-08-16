@@ -1,21 +1,41 @@
 /**
- * The folder on the author's machine where screenshots pasted into a post are
- * written.
+ * Where a pasted screenshot is kept: a folder on this machine, a folder in
+ * Google Drive, or — the useful case — both at once.
  *
- * Posts live in localStorage, which is far too small to hold image bytes — a
- * handful of screenshots would fill the quota and take the whole blog down with
- * it. So the bytes go to a real folder the author picks once, and the post keeps
- * only the file name (see `localImageSrc` in `lib/local-posts.ts`).
+ * Posts and tables live in localStorage, which is far too small to hold image
+ * bytes: a handful of screenshots would fill the quota and take the whole site
+ * down with it. So the bytes go somewhere real and what is stored is only the
+ * file name (see `localImageSrc` in `lib/local-posts.ts`).
  *
- * This leans on the File System Access API, which only Chromium browsers have.
- * Everywhere else `folderSupported()` is false and pasting an image is refused
- * with an explanation rather than failing quietly. The handle is kept in
- * IndexedDB because, unlike localStorage, it can store one; the browser still
- * decides whether the permission that came with it survives a restart, so every
- * read path is prepared to ask for it again.
+ * Most of this file is that first somewhere — a folder the author picks once,
+ * through the File System Access API, which only Chromium on a desktop has.
+ * The handle is kept in IndexedDB because, unlike localStorage, it can store
+ * one; the browser still decides whether the permission that came with it
+ * survives a restart, so every read path is prepared to ask for it again.
+ *
+ * The second is `lib/drive-images.ts`, and it exists because that first one can
+ * only ever be reached by one browser on one computer — a phone has no File
+ * System Access API and no filesystem to point it at, so a screenshot pasted on
+ * a laptop could not be seen anywhere else.
+ *
+ * `saveImage`, `readImage` and `deleteImage` at the bottom are the one door
+ * everything else in the site goes through, and each consults **both**. That is
+ * what makes the arrangement worth having: the name is the only thing a post or
+ * a cell ever holds, the same name means the same picture in both folders, and
+ * so a picture written on the desktop is written to the local folder for speed
+ * and to Drive so that the phone can have it. A read tries the local folder
+ * first for the same reason — it is instant, offline and costs nobody a token —
+ * and falls back to Drive, which on a phone is the only answer there ever is.
  */
 
 import { allTableImageNames } from '@/lib/documents';
+import {
+  deleteDriveImage,
+  driveImageNames,
+  driveImagesReady,
+  readDriveImage,
+  saveDriveImage,
+} from '@/lib/drive-images';
 import { getLocalPosts, isLocalImageName, localImageNamesIn } from '@/lib/local-posts';
 
 // TypeScript's DOM library types the handles but not the picker that hands them
@@ -232,7 +252,7 @@ export async function forgetFolder(): Promise<void> {
 }
 
 /* -------------------------------------------------------------------------- */
-/*  Files                                                                     */
+/*  Files in the folder on this machine                                       */
 /* -------------------------------------------------------------------------- */
 
 function makeImageName(type: string): string {
@@ -240,30 +260,23 @@ function makeImageName(type: string): string {
   return `paste-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}.${extension}`;
 }
 
-/** Writes a pasted image and gives back its file name, or null if it could not be saved. */
-export async function saveImage(blob: Blob): Promise<string | null> {
+async function writeLocalImage(name: string, blob: Blob): Promise<boolean> {
   const folder = await usableFolder();
-  if (!folder) return null;
-
-  const name = makeImageName(blob.type);
-  if (!isLocalImageName(name)) return null;
+  if (!folder) return false;
 
   try {
     const file = await folder.getFileHandle(name, { create: true });
     const writable = await file.createWritable();
     await writable.write(blob);
     await writable.close();
-    return name;
+    return true;
   } catch {
     // Folder moved, permission withdrawn, disk full — the paste just does not stick.
-    return null;
+    return false;
   }
 }
 
-/** Reads one image back out of the folder. */
-export async function readImage(name: string): Promise<File | null> {
-  if (!isLocalImageName(name)) return null;
-
+async function readLocalImage(name: string): Promise<File | null> {
   const folder = await usableFolder();
   if (!folder) return null;
 
@@ -275,14 +288,7 @@ export async function readImage(name: string): Promise<File | null> {
   }
 }
 
-/**
- * Deletes one image. Only ever called with a name the post itself put there and
- * that no remaining post refers to, so nothing the author dropped in the folder
- * by hand is at risk.
- */
-export async function deleteImage(name: string): Promise<boolean> {
-  if (!isLocalImageName(name)) return false;
-
+async function deleteLocalImage(name: string): Promise<boolean> {
   const folder = await usableFolder();
   if (!folder) return false;
 
@@ -292,6 +298,66 @@ export async function deleteImage(name: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/* -------------------------------------------------------------------------- */
+/*  The one door, over both folders                                           */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * Writes a pasted image and gives back its file name, or null if there was
+ * nowhere at all to put it.
+ *
+ * The name is minted **before** either write, rather than by whichever store
+ * happens to take it, because the whole scheme rests on one name meaning one
+ * picture in both places — two names for the same paste would be two pictures,
+ * one of which no device but this one could ever show.
+ *
+ * Either store succeeding is enough. A desktop with no Drive connected carries
+ * on exactly as it did; a phone, which can never have the local folder, is the
+ * same case said the other way round.
+ */
+export async function saveImage(blob: Blob): Promise<string | null> {
+  const name = makeImageName(blob.type);
+  if (!isLocalImageName(name)) return null;
+
+  // Both are started before either is waited on: the upload is a network round
+  // trip and the local write is not, and a paste should not take the sum.
+  const [local, drive] = await Promise.all([
+    writeLocalImage(name, blob),
+    driveImagesReady() ? saveDriveImage(name, blob) : Promise.resolve(false),
+  ]);
+
+  return local || drive ? name : null;
+}
+
+/**
+ * Reads one image back. The local folder first — it is instant and offline —
+ * and then Drive, which is where a picture made on another device is.
+ */
+export async function readImage(name: string): Promise<File | null> {
+  if (!isLocalImageName(name)) return null;
+
+  return (await readLocalImage(name)) ?? (await readDriveImage(name));
+}
+
+/**
+ * Deletes one image from wherever it is. Only ever called with a name the post
+ * or the table itself put there and that nothing remaining refers to, so
+ * nothing the author dropped in the folder by hand is at risk.
+ *
+ * True when either store had it: a picture that only ever reached Drive is
+ * still a picture that has now gone.
+ */
+export async function deleteImage(name: string): Promise<boolean> {
+  if (!isLocalImageName(name)) return false;
+
+  const [local, drive] = await Promise.all([
+    deleteLocalImage(name),
+    driveImagesReady() ? deleteDriveImage(name) : Promise.resolve(false),
+  ]);
+
+  return local || drive;
 }
 
 /**
@@ -350,4 +416,61 @@ export async function discardUnusedImages(previousHtml: string, nextHtml: string
  */
 export async function discardTableImages(names: readonly string[]): Promise<string[]> {
   return discardNames(names);
+}
+
+/* -------------------------------------------------------------------------- */
+/*  Catching Drive up                                                         */
+/* -------------------------------------------------------------------------- */
+
+export interface DriveSync {
+  /** How many pictures went up. */
+  sent: number;
+  /** How many were already there, so nothing was done about them. */
+  already: number;
+  /** Names that could not be read from the local folder or would not upload. */
+  failed: number;
+}
+
+/**
+ * Sends every picture this browser is still using that Drive has not got.
+ *
+ * Connecting Drive does nothing on its own for the screenshots pasted before it
+ * was connected — they are in a folder on this machine and nowhere else — and a
+ * feature whose whole purpose is that the phone can see the pictures would be a
+ * poor one if it only ever meant the pictures taken from today onwards. This is
+ * that catch-up, and it has to be asked for rather than happening quietly: it
+ * is somebody's Drive and possibly a hundred files.
+ *
+ * Only names something still points at are considered — the same set the sweep
+ * uses — so a file the author dropped into the folder by hand is not uploaded
+ * to their Drive, and neither is one belonging to a post that has been deleted.
+ * Uploads go one at a time on purpose: fifty at once is how a browser starts
+ * dropping them and how Drive starts answering 403.
+ */
+export async function sendPicturesToDrive(): Promise<DriveSync> {
+  const result: DriveSync = { sent: 0, already: 0, failed: 0 };
+  if (!driveImagesReady()) return result;
+
+  const there = await driveImageNames();
+
+  for (const name of stillUsedNames()) {
+    if (there.has(name)) {
+      result.already += 1;
+      continue;
+    }
+
+    const file = await readLocalImage(name);
+    if (!file) {
+      // Not in Drive and not on this machine either, so there is nothing to
+      // send: the local folder has been moved or its permission has lapsed, or
+      // the file really is gone and the cell pointing at it is already broken.
+      result.failed += 1;
+      continue;
+    }
+
+    if (await saveDriveImage(name, file)) result.sent += 1;
+    else result.failed += 1;
+  }
+
+  return result;
 }
